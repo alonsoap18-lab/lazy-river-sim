@@ -1,0 +1,7 @@
+# Dependencias para ejecutar la aplicación en Streamlit Community Cloud.
+streamlit==1.61.1
+numpy==2.5.2
+plotly==6.9.0
+ezdxf==1.4.4
+shapely==2.1.2
+scipy==1.18.0

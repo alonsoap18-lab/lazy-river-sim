@@ -1,0 +1,46 @@
+project_name: Selvatura NYA
+system_name: Lazy River
+location: Liberia, Guanacaste, Costa Rica
+
+geometry:
+  dxf_file: RECORRIDO.dxf
+  layer_name: PAREDES
+  length_m: 536.0
+  # average_width_m: VALOR DE REFERENCIA SOLAMENTE
+  # El ancho real del canal SIEMPRE se calcula desde el DXF cargado.
+  # Este valor NO se usa en los cálculos hidráulicos cuando hay un DXF activo.
+  # El DXF de RECORRIDO.dxf da ~11 m de ancho promedio (no 5 m).
+  average_width_m: 5.0
+  # width_override: null = usar ancho del DXF. Setear a un número para forzar.
+  # Solo se usa si el usuario activa "Forzar ancho manual" en la sidebar.
+  width_override: null
+
+hydraulics:
+  depth_m: 1.20
+  manning_n: 0.015
+  manning_n_source: "Literatura - concreto/pintura piscina"
+  slope: null
+  target_velocity_m_s: 0.50
+  density_water_kg_m3: 998.0
+  gravity_m_s2: 9.81
+  kinematic_viscosity_m2_s: 1.004e-6
+
+stations:
+  spacing_m: 0.5
+
+propulsion:
+  type: jets
+  default_jet_diameter_m: 0.075
+  default_jet_angle_deg: 30
+
+pumps:
+  default_efficiency: 0.70
+  service_factor: 1.15
+
+people:
+  default_count: 0
+  max_capacity: 100
+  body_drag_coefficient: 1.0
+  body_frontal_area_m2: 0.5
+  floater_drag_coefficient: 0.8
+  floater_frontal_area_m2: 0.3
