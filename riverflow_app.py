@@ -3,6 +3,7 @@
 import csv
 import io
 import os
+from math import ceil
 
 import plotly.graph_objects as go
 import streamlit as st
@@ -18,6 +19,7 @@ from core.riverflow_model import (
 
 
 MODEL_VERSION = "riverflow-curve-anchors-2"
+ASSET_DIR = os.path.join(os.path.dirname(__file__), "assets")
 
 
 @st.cache_resource(show_spinner="Leyendo recorrido DXF...")
@@ -46,7 +48,7 @@ def parse_chainages(value, length_m):
     return positions
 
 
-def make_map(model, plan):
+def make_map(model, plan, show_installation=True):
     fig = go.Figure()
     for wall, label, color in (
         (model.loader.outer_wall, "Muro exterior DXF", "#64748b"),
@@ -72,16 +74,67 @@ def make_map(model, plan):
                 ys.append(None)
         fig.add_trace(go.Scatter(x=xs, y=ys, mode="lines", name=label,
                                  line=dict(color=color, width=6)))
-    module_stations = [min(model.stations, key=lambda s: abs(s["chainage_m"] - position))
-                       for position in plan.module_chainages_m]
+    pump_x, pump_y, suction_x, suction_y, outlet_x, outlet_y = [], [], [], [], [], []
+    pipe_x, pipe_y, flow_x, flow_y, labels = [], [], [], [], []
+    for number, position in enumerate(plan.module_chainages_m, 1):
+        index = min(range(len(model.stations)),
+                    key=lambda i: abs(model.stations[i]["chainage_m"] - position))
+        station = model.stations[index]
+        previous = model.stations[max(0, index - 1)]
+        following = model.stations[min(len(model.stations) - 1, index + 1)]
+        tx = following["x"] - previous["x"]
+        ty = following["y"] - previous["y"]
+        norm = (tx ** 2 + ty ** 2) ** 0.5 or 1.0
+        tx, ty = tx / norm, ty / norm
+        nx, ny = -ty, tx
+        width = float(station["width_m"])
+        px = station["x"] + nx * (width / 2 + 2)
+        py = station["y"] + ny * (width / 2 + 2)
+        sx = station["x"] - tx * 1.2 + nx * (width * 0.3)
+        sy = station["y"] - ty * 1.2 + ny * (width * 0.3)
+        ox = station["x"] + tx * 1.2 + nx * (width * 0.3)
+        oy = station["y"] + ty * 1.2 + ny * (width * 0.3)
+        labels.append(f"RF-{number:02d} · {position:.0f} m")
+        pump_x.append(px)
+        pump_y.append(py)
+        if show_installation:
+            for side in (-0.6, 0.6):
+                x, y = sx + tx * side, sy + ty * side
+                suction_x.append(x)
+                suction_y.append(y)
+                pipe_x.extend([x, px, None])
+                pipe_y.extend([y, py, None])
+            outlet_x.append(ox)
+            outlet_y.append(oy)
+            pipe_x.extend([px, ox, None])
+            pipe_y.extend([py, oy, None])
+            flow_x.extend([ox, ox + tx * 3, None])
+            flow_y.extend([oy, oy + ty * 3, None])
+    if show_installation:
+        fig.add_trace(go.Scatter(x=pipe_x, y=pipe_y, mode="lines", name="Tubería local (esquema)",
+                                 line=dict(color="#94a3b8", width=1, dash="dot"),
+                                 hoverinfo="skip"))
+        fig.add_trace(go.Scatter(x=suction_x, y=suction_y, mode="markers",
+                                 name="Dos tomas de succión (esquema)",
+                                 marker=dict(size=6, color="#0891b2", symbol="square")))
+        fig.add_trace(go.Scatter(x=outlet_x, y=outlet_y, mode="markers",
+                                 name="Descarga/acelerador (esquema)",
+                                 marker=dict(size=8, color="#16a34a", symbol="triangle-up")))
+        fig.add_trace(go.Scatter(x=flow_x, y=flow_y, mode="lines", name="Dirección propuesta de flujo",
+                                 line=dict(color="#16a34a", width=2), hoverinfo="skip"))
     fig.add_trace(go.Scatter(
-        x=[s["x"] for s in module_stations], y=[s["y"] for s in module_stations],
-        mode="markers", name="Unidad Riverflow activa",
+        x=pump_x if show_installation else
+        [model.stations[min(range(len(model.stations)),
+                            key=lambda i: abs(model.stations[i]["chainage_m"] - p))]["x"]
+         for p in plan.module_chainages_m],
+        y=pump_y if show_installation else
+        [model.stations[min(range(len(model.stations)),
+                            key=lambda i: abs(model.stations[i]["chainage_m"] - p))]["y"]
+         for p in plan.module_chainages_m],
+        mode="markers", name="Estación Riverflow propuesta",
         marker=dict(size=10, color="#ea580c", symbol="diamond",
                     line=dict(color="white", width=1)),
-        text=[f"RF-{i:02d} · {position:.0f} m"
-              for i, position in enumerate(plan.module_chainages_m, 1)],
-        hovertemplate="%{text}<extra></extra>",
+        text=labels, hovertemplate="%{text}<extra></extra>",
     ))
     fig.update_layout(height=620, margin=dict(l=15, r=15, t=30, b=15),
                       legend=dict(orientation="h", y=-0.08),
@@ -104,6 +157,35 @@ def make_profile(model, plan):
                       yaxis2=dict(title="Velocidad equivalente (m/s)", overlaying="y",
                                   side="right", rangemode="tozero"),
                       legend=dict(orientation="h", y=1.12))
+    return fig
+
+
+def make_installation_schematic():
+    """Topology-only diagram; positions and pipe lengths are not design dimensions."""
+    fig = go.Figure()
+    fig.add_shape(type="rect", x0=0, y0=0, x1=10, y1=3,
+                  fillcolor="#dbeafe", line=dict(color="#60a5fa"))
+    fig.add_trace(go.Scatter(x=[1.5, 1.5, 5, 7.5], y=[1.5, 3.3, 3.3, 1.5],
+                             mode="lines", name="Circuito local",
+                             line=dict(color="#64748b", width=4)))
+    fig.add_trace(go.Scatter(x=[1.2, 1.8], y=[1.5, 1.5], mode="markers",
+                             name="Toma doble protegida",
+                             marker=dict(color="#0891b2", size=15, symbol="square")))
+    fig.add_trace(go.Scatter(x=[5], y=[3.3], mode="markers", name="Bomba local Riverflow",
+                             marker=dict(color="#ea580c", size=22, symbol="diamond")))
+    fig.add_trace(go.Scatter(x=[7.5], y=[1.5], mode="markers",
+                             name="Acelerador / descarga",
+                             marker=dict(color="#16a34a", size=19, symbol="triangle-up")))
+    fig.add_annotation(x=9.4, y=1.5, ax=7.8, ay=1.5, text="Corriente propuesta",
+                       showarrow=True, arrowhead=3, arrowcolor="#16a34a")
+    fig.add_annotation(x=5, y=4.25, text="Variador y tableros en área eléctrica protegida",
+                       showarrow=False)
+    fig.add_annotation(x=5, y=0.4, text="Agua del río · sin cotas de NYA",
+                       showarrow=False)
+    fig.update_layout(height=340, margin=dict(l=10, r=10, t=15, b=10),
+                      xaxis=dict(visible=False, range=[-0.5, 10.5]),
+                      yaxis=dict(visible=False, range=[-0.5, 4.6], scaleanchor="x"),
+                      legend=dict(orientation="h", y=-0.08))
     return fig
 
 
@@ -251,13 +333,17 @@ def main():
     g5.metric("Q por unidad según curva", f"{plan.module_flow_full_speed_m3_h:,.0f} m³/h",
               help=f"Interpolado a {local_head_ft:.1f} ft ({local_head_ft * 0.3048:.2f} m) de TDH local estimada, a plena velocidad.")
 
-    tab_map, tab_hydraulic, tab_equipment = st.tabs(
-        ["Plano 2D y unidades", "Cálculo y escenarios", "Equipos e infraestructura"])
+    tab_map, tab_hydraulic, tab_equipment, tab_references = st.tabs(
+        ["Plano 2D y unidades", "Cálculo y escenarios", "Equipos e infraestructura",
+         "Comparativos y planos Riverflow"])
 
     with tab_map:
-        st.plotly_chart(make_map(model, plan), width="stretch")
-        st.caption("Cada marcador representa una unidad Riverflow con toma de succión y salida local. "
-                   "La posición es conceptual; el fabricante debe definir separación, orientación y detalles de obra.")
+        show_installation = st.checkbox("Mostrar montaje conceptual: bomba, tomas y descarga", value=True)
+        st.plotly_chart(make_map(model, plan, show_installation), width="stretch")
+        st.caption("Naranja: bomba local propuesta en una margen. Azul: dos tomas de succión. Verde: "
+                   "descarga y dirección tentativa. Las conexiones son símbolos esquemáticos; "
+                   "no representan cotas, diámetros, orientación definitiva ni alcance hidráulico. "
+                   "Riverflow debe aprobar ubicación y detalle para NYA.")
         st.metric("Longitud del circuito", f"{plan.length_m:.0f} m")
         z1, z2 = st.columns(2)
         z1.metric("Canal de corriente", f"{plan.current_zone_length_m:.0f} m")
@@ -330,6 +416,45 @@ def main():
         st.caption("El plano 'Espada Amenity' recibido de Riverflow muestra como referencia una bomba vertical, "
                    "dos tomas de succión, descarga y requisitos de elevación/drenaje. Es otro proyecto: "
                    "sus cotas y disposición no se transfieren a NYA sin un plano específico aprobado.")
+
+    with tab_references:
+        st.subheader("Comparación de configuraciones Riverflow")
+        st.dataframe([
+            {"Escenario": "NYA · hipótesis 4 ft", "Longitud conocida": f"{plan.length_m:.0f} m desde DXF",
+             "Q por unidad": "554 m³/h", "Unidades para meta":
+             f"{ceil(plan.target_equivalent_flow_m3_h / (riverflow_flow_at_head_ft(4) * plan.speed_fraction * plan.transfer_fraction))} aprox.",
+             "Alcance del dato": "Cálculo NYA; TDH y transferencia sin verificar"},
+            {"Escenario": "NYA · hipótesis 10 ft", "Longitud conocida": f"{plan.length_m:.0f} m desde DXF",
+             "Q por unidad": "277 m³/h", "Unidades para meta":
+             f"{ceil(plan.target_equivalent_flow_m3_h / (riverflow_flow_at_head_ft(10) * plan.speed_fraction * plan.transfer_fraction))} aprox.",
+             "Alcance del dato": "Cálculo NYA; TDH y transferencia sin verificar"},
+            {"Escenario": "Espada Amenity · plano recibido", "Longitud conocida": "No indicada",
+             "Q por unidad": "No indicado en el plano", "Unidades para meta": "No comparable",
+             "Alcance del dato": "Detalle constructivo de otro proyecto, 3.5 ft de profundidad"},
+            {"Escenario": "Gator Grounds · referencia pública", "Longitud conocida": "301 ft ≈ 92 m",
+             "Q por unidad": "No publicado para ese proyecto", "Unidades para meta": "No comparable",
+             "Alcance del dato": "Longitud publicada; sin cantidad ni TDH de bombas"},
+            {"Escenario": "AquaNick Riviera Maya · referencia pública", "Longitud conocida": "No publicada",
+             "Q por unidad": "No publicado para ese proyecto", "Unidades para meta": "No comparable",
+             "Alcance del dato": "Riverflow confirma uso, sin datos hidráulicos comparables"},
+        ], width="stretch", hide_index=True)
+        st.caption("Los conteos NYA son aritméticos bajo las hipótesis actuales, no diseños de esos "
+                   "proyectos. Falta una medición de corriente y una curva de sistema para comparar desempeño.")
+        st.markdown("Fuentes externas: [Gator Grounds (Riverflow)](https://riverflowpumps.com/aqua-magazine-a-fiberglass-lazy-river/) · "
+                    "[AquaNick (Riverflow)](https://riverflowpumps.com/commercial-projects/) · "
+                    "[Componentes del sistema](https://riverflowpumps.com/technical/what-the-system-includes/).")
+        st.subheader("Cómo se integra un módulo en el río")
+        st.plotly_chart(make_installation_schematic(), width="stretch")
+        st.caption("Esquema funcional, no plano de construcción: toma doble protegida → bomba local → "
+                   "descarga orientada con la corriente. Se debe resolver acceso, drenaje, ventilación, "
+                   "electricidad, cotas y seguridad de succión por cada estación.")
+        st.subheader("Documentos recibidos")
+        st.image(os.path.join(ASSET_DIR, "riverflow_pump_curve.jpg"),
+                 caption="Curva H–Q facilitada por Riverflow: CF104, 2,440 US GPM a 4 ft y 1,220 US GPM a 10 ft.",
+                 width="stretch")
+        st.image(os.path.join(ASSET_DIR, "riverflow_espada_reference.jpeg"),
+                 caption="Plano recibido: Espada Amenity, bomba #2 (hoja 3 de 9). Referencia constructiva de otro proyecto; no es un plano aprobado para NYA.",
+                 width="stretch")
 
     st.markdown("**Datos de la curva facilitada por Riverflow:** "
                 f"{RIVERFLOW_RATED_GPM:,.0f} US GPM ≈ {RIVERFLOW_RATED_M3_H:.1f} m³/h a 4 ft; "

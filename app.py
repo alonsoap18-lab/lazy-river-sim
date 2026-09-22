@@ -2616,7 +2616,14 @@ def main():
 
 
 if __name__ == "__main__":
-    # The active product experience is the Riverflow-specific Phase-1 model.
-    # The former generic simulator remains here for historical reference.
-    from riverflow_app import main as riverflow_main
-    riverflow_main()
+    st.sidebar.header("Área de trabajo")
+    workspace_view = st.sidebar.radio(
+        "Seleccionar modelo",
+        ["Modelo original · bombas y jets", "Riverflow · módulos locales"],
+        help="Cada vista conserva sus propias hipótesis y resultados; no se mezclan caudales ni TDH.")
+    st.sidebar.divider()
+    if workspace_view == "Modelo original · bombas y jets":
+        main()
+    else:
+        from riverflow_app import main as riverflow_main
+        riverflow_main()
