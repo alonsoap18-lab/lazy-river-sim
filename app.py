@@ -33,7 +33,7 @@ st.markdown("""<style>
 </style>""", unsafe_allow_html=True)
 
 
-MODEL_CACHE_VERSION = "phase1-zoning-treatment-1"
+MODEL_CACHE_VERSION = "phase1-zoning-treatment-2"
 
 
 @st.cache_resource(show_spinner="Cargando geometria DXF...")
