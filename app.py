@@ -32,8 +32,11 @@ st.markdown("""<style>
 </style>""", unsafe_allow_html=True)
 
 
+MODEL_CACHE_VERSION = "audit-fixes-1"
+
+
 @st.cache_resource(show_spinner="Cargando geometria DXF...")
-def load_model(dxf_path, length_m):
+def load_model(dxf_path, length_m, cache_version):
     """Load model from DXF. Cached for performance - only reloads when path/length change.
     Width always comes from DXF geometry (isotropic scaling)."""
     m = LazyRiverModel()
@@ -556,7 +559,7 @@ def main():
             tmp.write(uploaded.read())
             dxf_path = tmp.name
 
-    model = load_model(dxf_path, length_m)
+    model = load_model(dxf_path, length_m, MODEL_CACHE_VERSION)
 
     # Apply manual width override if active
     if width_override:
