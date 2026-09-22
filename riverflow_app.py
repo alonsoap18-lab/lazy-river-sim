@@ -5,6 +5,7 @@ import io
 import os
 from math import ceil
 
+import numpy as np
 import plotly.graph_objects as go
 import streamlit as st
 
@@ -19,7 +20,7 @@ from core.riverflow_model import (
 )
 
 
-MODEL_VERSION = "riverflow-clockwise-manning-3"
+MODEL_VERSION = "riverflow-guided-fast-simulation-4"
 ASSET_DIR = os.path.join(os.path.dirname(__file__), "assets")
 
 
@@ -226,6 +227,63 @@ def make_count_chart(plan):
     return fig
 
 
+def simulated_positions(stations, depth_m, time_phases):
+    """Positions along a Q/A travel-time coordinate; not a CFD particle model."""
+    cumulative_volume = [0.0]
+    for previous, current in zip(stations, stations[1:]):
+        ds = float(current["chainage_m"] - previous["chainage_m"])
+        mean_width = (float(previous["width_m"]) + float(current["width_m"])) / 2
+        cumulative_volume.append(cumulative_volume[-1] + ds * mean_width * depth_m)
+    if cumulative_volume[-1] <= 0:
+        raise ValueError("No se puede animar un recorrido sin volumen positivo.")
+    fractions = np.asarray(cumulative_volume) / cumulative_volume[-1]
+    phases = np.mod(np.asarray(time_phases, dtype=float), 1.0)
+    return (np.interp(phases, fractions, [s["x"] for s in stations]),
+            np.interp(phases, fractions, [s["y"] for s in stations]))
+
+
+def make_fast_simulation(model, plan, playback_multiplier):
+    """Animate one conceptual lap without changing the physical pump setting."""
+    frame_count = 72
+    rider_count = 8
+    frame_ms = max(30, round(plan.estimated_lap_min * 60_000 /
+                             (playback_multiplier * frame_count)))
+    initial_phases = np.arange(rider_count) / rider_count
+    x0, y0 = simulated_positions(model.stations, 1.0, initial_phases)
+    # The normalized cumulative volume does not depend on the uniform depth;
+    # use the scenario depth-independent fraction directly through depth=1.
+    frames = []
+    for frame in range(frame_count):
+        phases = (initial_phases + frame / frame_count) % 1.0
+        xs, ys = simulated_positions(model.stations, 1.0, phases)
+        frames.append(go.Frame(name=str(frame), data=[go.Scatter(x=xs, y=ys,
+                           mode="markers", marker=dict(size=13, color="#f97316",
+                                                       line=dict(color="white", width=1)),
+                           text=[f"Flotador {i+1}" for i in range(rider_count)],
+                           hovertemplate="%{text}<extra></extra>")], traces=[1]))
+    fig = go.Figure(data=[
+        go.Scatter(x=[s["x"] for s in model.stations], y=[s["y"] for s in model.stations],
+                   mode="lines", name="Centro del canal · horario",
+                   line=dict(color="#2563eb", width=4)),
+        go.Scatter(x=x0, y=y0, mode="markers", name="Flotadores conceptuales",
+                   marker=dict(size=13, color="#f97316", line=dict(color="white", width=1))),
+    ], frames=frames)
+    fig.update_layout(height=540, margin=dict(l=10, r=10, t=20, b=10),
+                      xaxis=dict(visible=False), yaxis=dict(visible=False, scaleanchor="x"),
+                      showlegend=True,
+                      updatemenus=[dict(type="buttons", direction="left", x=0, y=1.12,
+                                        buttons=[dict(label="▶ Reproducir", method="animate",
+                                                      args=[None, {"frame": {"duration": frame_ms,
+                                                                              "redraw": True},
+                                                                   "transition": {"duration": 0},
+                                                                   "fromcurrent": True}]),
+                                                 dict(label="⏸ Pausar", method="animate",
+                                                      args=[[None], {"mode": "immediate",
+                                                                     "frame": {"duration": 0,
+                                                                               "redraw": False}}])])])
+    return fig
+
+
 def make_csv(plan, nozzle_type):
     output = io.StringIO()
     writer = csv.writer(output)
@@ -363,9 +421,10 @@ def main():
     g5.metric("Q por unidad según curva", f"{plan.module_flow_full_speed_m3_h:,.0f} m³/h",
               help=f"Interpolado a {local_head_ft:.1f} ft ({local_head_ft * 0.3048:.2f} m) de TDH local estimada, a plena velocidad.")
 
-    tab_map, tab_hydraulic, tab_equipment, tab_references = st.tabs(
-        ["Plano 2D y unidades", "Cálculo y escenarios", "Equipos e infraestructura",
-         "Comparativos y planos Riverflow"])
+    (tab_map, tab_explain, tab_hydraulic, tab_fast, tab_treatment,
+     tab_equipment, tab_references) = st.tabs(
+        ["Plano 2D", "Explicación", "Hidráulica", "Simulador rápido",
+         "Tratamiento de agua", "Equipos", "Referencias"])
 
     with tab_map:
         st.info("Circulación definida: sentido horario. El origen del recorrido es el punto inicial del DXF; "
@@ -382,6 +441,32 @@ def main():
         z2.metric("Entradas a playa / zonas calmas", f"{plan.calm_zone_length_m:.0f} m")
         st.metric("Mayor distancia de canal a una unidad", f"{plan.max_current_distance_to_module_m:.0f} m",
                   help="Distancia más larga, medida sobre el recorrido cerrado, desde una sección de corriente hasta la unidad activa más cercana. Cambia al mover unidades; no equivale a alcance hidráulico de la descarga.")
+
+    with tab_explain:
+        st.subheader("Cómo leer este escenario")
+        st.markdown(
+            f"1. **Plano y agua:** el DXF fija el recorrido horario de {plan.length_m:.0f} m "
+            f"y los anchos variables. Con {depth_m:.2f} m de profundidad, el volumen aproximado "
+            f"es {plan.volume_m3:,.0f} m³.\n"
+            f"2. **Cada bomba:** la curva Riverflow da {plan.module_flow_full_speed_m3_h:,.0f} m³/h "
+            f"por unidad a la TDH local supuesta de {local_head_ft:.1f} ft y plena velocidad.\n"
+            f"3. **Movimiento del río:** {active_modules} unidades dan "
+            f"{plan.installed_operating_flow_m3_h:,.0f} m³/h de descarga local estimada; "
+            f"con transferencia hipotética de {transfer_pct}%, la circulación longitudinal "
+            f"equivalente es {plan.equivalent_channel_flow_m3_h:,.0f} m³/h.\n"
+            f"4. **Tiempo de vuelta:** volumen ÷ circulación equivalente = "
+            f"{plan.estimated_lap_min:.1f} minutos, frente a la meta de "
+            f"{target_lap_min:.1f} minutos.\n"
+            f"5. **Resistencia:** Manning n={manning_current:.3f} en el canal de corriente "
+            f"y {manning_calm:.3f} en playa produce {plan.channel_friction_head_m:.3f} m "
+            "de pérdida calculada para el canal; no es la TDH del circuito local de las bombas."
+        )
+        st.info("La simulación es un escenario de fase 1, no una predicción validada de velocidad "
+                "del agua ni una certificación de seguridad. El porcentaje de transferencia y la TDH "
+                "local requieren un diseño hidráulico por estación y mediciones o CFD.")
+        st.markdown("**Faltan para cerrar el diseño:** perfiles y cotas de instalación NYA, "
+                    "diámetros/longitudes de succión y descarga, pérdidas de boquilla, curva completa "
+                    "con variador, prueba de circulación y diseño sanitario independiente.")
 
     with tab_hydraulic:
         st.subheader("Fricción del canal · Manning")
@@ -454,6 +539,59 @@ def main():
                    "requieren dimensiones de tomas/salidas, trazado local y validación del fabricante. "
                    "La placa de 10 HP no es el consumo instantáneo.")
 
+    with tab_fast:
+        st.subheader("Vuelta conceptual acelerada · sentido horario")
+        playback = st.select_slider("Velocidad de reproducción", [60, 120, 300, 600], value=300,
+                                    format_func=lambda value: f"{value}×",
+                                    help="Acelera solo la animación. No cambia RPM, caudal ni tiempo físico de vuelta.")
+        p1, p2, p3 = st.columns(3)
+        p1.metric("Vuelta física estimada", f"{plan.estimated_lap_min:.1f} min")
+        p2.metric("Reproducción", f"{playback}×")
+        p3.metric("Duración de un ciclo en pantalla", f"{plan.estimated_lap_min * 60 / playback:.1f} s")
+        st.plotly_chart(make_fast_simulation(model, plan, playback), width="stretch")
+        st.caption("Pulsa ▶ en la gráfica. Los flotadores siguen el tiempo Q/A estimado: pasan más "
+                   "despacio por los tramos anchos. No representan trayectorias reales, turbulencia, "
+                   "remolinos, interacción entre usuarios ni CFD. La reproducción acelerada no "
+                   "modifica los resultados hidráulicos.")
+
+    with tab_treatment:
+        st.subheader("Tratamiento de agua · circuito independiente")
+        t1, t2, t3 = st.columns(3)
+        t1.metric("Volumen hidráulico DXF", f"{plan.volume_m3:,.0f} m³")
+        t2.metric("Recambio de filtración supuesto", f"{turnover_h:.1f} h")
+        t3.metric("Q que debe atravesar filtros", f"{plan.filtration_flow_m3_h:,.0f} m³/h")
+        st.info("Los módulos Riverflow impulsan la corriente, pero su descarga local no se cuenta "
+                "como caudal filtrado. El recambio se calcula solo con el flujo que realmente pasa "
+                "por el sistema de tratamiento: Q = volumen / horas de recambio.")
+        candidate_rate = st.number_input("Tasa de filtración de prueba (m/h)", 1.0, 60.0,
+                                          20.0, 1.0,
+                                          help="Hipótesis para comparar áreas, NO una recomendación de diseño ni un límite normativo. La tasa final depende del tipo y fabricante del filtro.")
+        candidate_area = st.number_input("Área efectiva por filtro candidato (m²; 0 si no se conoce)",
+                                          0.0, 200.0, 0.0, 1.0)
+        total_filter_area = plan.filtration_flow_m3_h / candidate_rate
+        st.metric("Área total de filtración · hipótesis", f"{total_filter_area:,.1f} m²")
+        if candidate_area > 0:
+            st.metric("Filtros activos mínimos · aritmética", f"{ceil(total_filter_area / candidate_area)}")
+        turnover_options = np.arange(2.0, 12.5, 0.5)
+        turnover_chart = go.Figure()
+        turnover_chart.add_trace(go.Scatter(x=turnover_options,
+                                            y=plan.volume_m3 / turnover_options,
+                                            mode="lines", name="Q filtración requerida",
+                                            line=dict(color="#0891b2", width=3)))
+        turnover_chart.add_trace(go.Scatter(x=[turnover_h], y=[plan.filtration_flow_m3_h],
+                                            mode="markers", name="Escenario actual",
+                                            marker=dict(size=12, color="#ea580c")))
+        turnover_chart.update_layout(height=290, margin=dict(l=20, r=20, t=20, b=25),
+                                     xaxis_title="Tiempo de recambio supuesto (h)",
+                                     yaxis_title="Caudal filtrado necesario (m³/h)")
+        st.plotly_chart(turnover_chart, width="stretch")
+        st.warning("Pendientes: norma sanitaria aplicable en Liberia, selección de filtros y bombas, "
+                   "desinfección, control de pH, balance de agua, retrolavado, tanque de compensación "
+                   "y caudal medido. La tasa de filtración de prueba no valida ningún equipo.")
+        st.markdown("Como referencia internacional, el [MAHC 2024 del CDC](https://www.cdc.gov/model-aquatic-health-code/media/pdfs/2024/11/5th-Ed-MAHC-Code-508.pdf) "
+                    "define el recambio por el agua que atraviesa filtración y excluye el caudal "
+                    "de funciones acuáticas sin filtrar. Es guía, no norma costarricense aplicable automáticamente.")
+
     with tab_equipment:
         st.subheader("Unidades de propulsión")
         rows = [{"Unidad": f"RF-{i:02d}", "Recorrido (m)": round(position, 1),
@@ -502,12 +640,19 @@ def main():
             {"Escenario": "AquaNick Riviera Maya · referencia pública", "Longitud conocida": "No publicada",
              "Q por unidad": "No publicado para ese proyecto", "Unidades para meta": "No comparable",
              "Alcance del dato": "Riverflow confirma uso, sin datos hidráulicos comparables"},
+            {"Escenario": "Typhoon Texas · referencia pública", "Longitud conocida": "No publicada",
+             "Q por unidad": "No publicado para ese proyecto", "Unidades para meta": "No comparable",
+             "Alcance del dato": "Contratista confirma uso de Riverflow; sin datos de diseño comparables"},
         ], width="stretch", hide_index=True)
         st.caption("Los conteos NYA son aritméticos bajo las hipótesis actuales, no diseños de esos "
                    "proyectos. Falta una medición de corriente y una curva de sistema para comparar desempeño.")
         st.markdown("Fuentes externas: [Gator Grounds (Riverflow)](https://riverflowpumps.com/aqua-magazine-a-fiberglass-lazy-river/) · "
                     "[AquaNick (Riverflow)](https://riverflowpumps.com/commercial-projects/) · "
+                    "[Typhoon Texas (testimonio publicado por Riverflow)](https://riverflowpumps.com/testimonials/contractors/) · "
                     "[Componentes del sistema](https://riverflowpumps.com/technical/what-the-system-includes/).")
+        st.caption("Para comparar de verdad con NYA se necesitan, como mínimo, longitud, perfil de anchos "
+                   "y profundidad, número de módulos, TDH local, velocidad medida, tiempo de vuelta "
+                   "y caudal filtrado. No se infieren estos valores de fotografías o testimonios.")
         st.subheader("Cómo se integra un módulo en el río")
         st.plotly_chart(make_installation_schematic(), width="stretch")
         st.caption("Esquema funcional, no plano de construcción: toma doble protegida → bomba local → "
