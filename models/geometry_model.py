@@ -127,6 +127,8 @@ class HydraulicResults:
     # Distinct from velocity_avg_m_s, which is the spatial arithmetic mean
     # of local station velocities.
     velocity_equivalent_m_s: float = 0.0
+    # Design/reporting velocity, exactly linked to the integrated lap time.
+    velocity_lap_m_s: float = 0.0
     velocity_min_m_s: float = 0.0
     velocity_max_m_s: float = 0.0
     total_flow_m3_s: float = 0.0

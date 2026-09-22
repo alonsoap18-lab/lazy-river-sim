@@ -88,6 +88,7 @@ def test_target_lap_time_drives_flow_and_returns_the_requested_time():
     assert abs(long_lap.lap_time_min - 30.0) < 0.02
     assert short_lap.total_flow_m3_h > long_lap.total_flow_m3_h
     assert short_lap.velocity_equivalent_m_s > long_lap.velocity_equivalent_m_s
+    assert abs(short_lap.velocity_lap_m_s - base.geometry.channel_length_m / (short_lap.lap_time_min * 60.0)) < 1e-12
 
 
 if __name__ == "__main__":

@@ -33,7 +33,7 @@ st.markdown("""<style>
 </style>""", unsafe_allow_html=True)
 
 
-MODEL_CACHE_VERSION = "target-lap-time-1"
+MODEL_CACHE_VERSION = "unified-reporting-velocity-1"
 
 
 @st.cache_resource(show_spinner="Cargando geometria DXF...")
@@ -276,7 +276,7 @@ def generate_whats_happening(model, results, n_people, n_jets, depth_m, n_pumps=
     lines.append("**Estado del sistema:**")
     lines.append("")
 
-    v = results.velocity_avg_m_s if results else 0
+    v = results.velocity_lap_m_s if results else 0
     lap = results.lap_time_min if results else 0
     total_q = n_pumps * pump_flow
 
@@ -649,12 +649,14 @@ def main():
     st.markdown("### RESULTADOS PRELIMINARES (no aptos para construcción ni certificación de seguridad)")
 
     # Main results row
-    c1, c2, c3, c4 = st.columns(4)
+    c1, c2, c_time, c3, c4 = st.columns(5)
     q_label = "Q requerido para tiempo objetivo" if target_lap_time_min else "Q bombas efectivo"
     c1.metric(q_label, f"{results.total_flow_m3_h:.0f} m3/h",
               help="Caudal usado por el modelo. Si hay VFD, incorpora la reducción de velocidad.")
-    c2.metric("V equivalente (Q/A promedio)", f"{results.velocity_equivalent_m_s:.3f} m/s",
-              help="Q real del modelo dividido entre el área con ancho promedio del DXF.")
+    c2.metric("Velocidad de recorrido (L/T)", f"{results.velocity_lap_m_s:.3f} m/s",
+              help="Velocidad principal del diseño: longitud del circuito dividida entre el tiempo de vuelta integrado.")
+    c_time.metric("Tiempo de vuelta", f"{results.lap_time_min:.1f} min",
+                  help="Tiempo integrado con las velocidades locales; es la base de la velocidad de recorrido L/T.")
     c3.metric("V local (mín–máx)", f"{results.velocity_min_m_s:.3f}–{results.velocity_max_m_s:.3f} m/s",
               help="Rango de velocidad por sección; permite detectar zonas lentas o rápidas.")
     c4.metric("TDH Sistema", f"{results.total_system_tdh_m:.2f} m",
@@ -734,8 +736,8 @@ def main():
     with gauge_col1:
         fig_v = go.Figure(go.Indicator(
             mode="gauge+number+delta",
-            value=results.velocity_equivalent_m_s,
-            title={'text': "V equivalente Q/A promedio (m/s)"},
+            value=results.velocity_lap_m_s,
+            title={'text': "Velocidad de recorrido L/T (m/s)"},
             delta={'reference': 0.5, 'increasing': {'color': "red"}, 'decreasing': {'color': "green"}},
             gauge={
                 'axis': {'range': [0, 1.0], 'tickwidth': 1},
@@ -796,8 +798,9 @@ def main():
     {f"Objetivo de vuelta: {target_lap_time_min:.1f} min → Q requerido = {results.total_flow_m3_h:.0f} m3/h" if target_lap_time_min else f"Bombas: {n_pumps} x {pump_flow:.0f} m3/h = {total_pump_flow:.0f} m3/h"}
     {f"VFD: {vfd_speed_pct:.0f}% → Q efectivo = {total_pump_flow_effective:.0f} m3/h" if use_vfd and vfd_speed_pct < 100 else ""}
     Area canal: {g.channel_width_avg_m:.1f} m x {depth_m:.2f} m = {channel_area:.1f} m2
-    Velocidad equivalente Q/A promedio: {results.total_flow_m3_h:.0f} / 3600 / {channel_area:.1f} = {results.velocity_equivalent_m_s:.3f} m/s
-    Velocidad local: min={results.velocity_min_m_s:.3f}, promedio espacial={results.velocity_avg_m_s:.3f}, max={results.velocity_max_m_s:.3f} m/s
+    Tiempo integrado de vuelta: {results.lap_time_min:.2f} min
+    Velocidad de recorrido: {g.channel_length_m:.0f} / ({results.lap_time_min:.2f} x 60) = {results.velocity_lap_m_s:.3f} m/s
+    Velocidad local: min={results.velocity_min_m_s:.3f}, max={results.velocity_max_m_s:.3f} m/s (varía con el ancho local)
     TDH sistema: {results.canal_friction_m:.3f} + {results.nozzle_loss_m:.3f} + {results.pipe_friction_m:.3f} = {results.total_system_tdh_m:.3f} m
     Potencia: (998 x 9.81 x {Q_required_m3s:.3f} x {results.total_system_tdh_m:.3f}) / {pump_efficiency:.2f} = {results.total_power_watts:.0f} W
     HP total: {results.total_power_watts:.0f} / 745.7 = {results.total_hp:.1f} HP
@@ -916,7 +919,7 @@ def main():
         v_from_jets = (Q_jets_total / 3600) / A_channel if A_channel > 0 else 0
 
         explain("Velocidad del agua",
-                f"La velocidad media es {results.velocity_avg_m_s:.3f} m/s ({results.velocity_avg_m_s*3.6:.1f} km/h). "
+                f"La velocidad de recorrido es {results.velocity_lap_m_s:.3f} m/s ({results.velocity_lap_m_s*3.6:.1f} km/h). "
                 f"El agua tarda {results.lap_time_min:.1f} minutos en completar una vuelta.\n\n"
                 f"**La velocidad depende de los jets:** {n_jets} jets inyectan {Q_jets_total:.0f} m3/h, "
                 f"lo que genera {v_from_jets:.3f} m/s. Si aumentas los jets, la velocidad aumenta.",
@@ -925,7 +928,7 @@ def main():
                 f"  Area canal = {g.channel_width_avg_m:.1f} x {depth_m:.2f} = {A_channel:.1f} m2\n"
                 f"  V_jets = Q/A = {v_from_jets:.3f} m/s\n"
                 f"  V_manning (resistencia) = referencia\n"
-                f"  V_efectiva = {results.velocity_avg_m_s:.3f} m/s\n"
+                f"  V de recorrido (L/T) = {results.velocity_lap_m_s:.3f} m/s\n"
                 f"  Manning n: {manning_n}")
 
         c1, c2 = st.columns(2)
@@ -1721,7 +1724,7 @@ def main():
                 showlegend=False, name='Persona'))
 
             fig.update_layout(
-                title=f"Simulacion - Vuelta completa: {lap_time/60:.1f} min a {v_avg:.3f} m/s promedio",
+                title=f"Simulación - Vuelta completa: {lap_time/60:.1f} min a {results.velocity_lap_m_s:.3f} m/s de recorrido",
                 xaxis_title="X", yaxis_title="Y",
                 plot_bgcolor='white', paper_bgcolor='white',
                 width=1100, height=750,
@@ -1749,7 +1752,8 @@ def main():
             # Info panel
             st.markdown("---")
             c1, c2, c3, c4, c5 = st.columns(5)
-            c1.metric("V local promedio", f"{v_avg:.3f} m/s ({v_avg*3.6:.1f} km/h)")
+            c1.metric("Velocidad de recorrido (L/T)",
+                      f"{results.velocity_lap_m_s:.3f} m/s ({results.velocity_lap_m_s*3.6:.1f} km/h)")
             time_delta = (f"Objetivo: {target_lap_time_min:.1f} min" if target_lap_time_min else None)
             c2.metric("Tiempo de vuelta", f"{lap_time/60:.1f} min", delta=time_delta)
             c3.metric("Velocidad minima", f"{v_min:.3f} m/s")
@@ -1960,7 +1964,7 @@ def main():
                 if "saved_configs" not in st.session_state:
                     st.session_state["saved_configs"] = {}
                 st.session_state["saved_configs"][config_name] = {
-                    "velocity": results.velocity_avg_m_s,
+                    "velocity": results.velocity_lap_m_s,
                     "tdh": results.total_system_tdh_m,
                     "power": results.power_motor_kw,
                     "lap_time": results.lap_time_min,
@@ -1998,7 +2002,7 @@ def main():
                 ]
             # Add current
             comp_table["ACTUAL"] = [
-                f"{results.velocity_avg_m_s:.3f}", f"{results.total_system_tdh_m:.2f}",
+                f"{results.velocity_lap_m_s:.3f}", f"{results.total_system_tdh_m:.2f}",
                 f"{results.power_motor_kw:.1f}", f"{results.lap_time_min:.1f}",
                 f"{total_pump_flow_effective:.0f}", f"{depth_m:.2f}",
                 f"{n_jets}", f"{n_pumps}", f"{safety_factor:.2f}",
@@ -2019,7 +2023,7 @@ def main():
                         r=[v_norm, tdh_norm, p_norm, eff_norm],
                         theta=categories, fill='toself', name=name))
                 # Add current
-                v_norm = results.velocity_avg_m_s / 0.5
+                v_norm = results.velocity_lap_m_s / 0.5
                 tdh_norm = results.total_system_tdh_m / 10
                 p_norm = results.power_motor_kw / 500
                 fig_radar.add_trace(go.Scatterpolar(
@@ -2086,7 +2090,7 @@ def main():
             st.markdown("### Reynolds")
             avg_rh = np.mean([s.hydraulic_radius_m for s in results.stations]) if results.stations else 0
             dh = 4 * avg_rh
-            re = results.velocity_avg_m_s * dh / 1.004e-6 if dh > 0 else 0
+            re = results.velocity_lap_m_s * dh / model.hydraulics.nu if dh > 0 else 0
             st.code(f"Re = V * Dh / nu = {re:.0f} ({'turbulento' if re > 4000 else 'laminar' if re < 2300 else 'transicion'})")
 
     with tab_ref:
@@ -2114,7 +2118,7 @@ def main():
         # Comparison with Selvatura
         st.subheader("Selvatura NYA vs Referencias")
         comparisons = compare_with_reference(
-            results.velocity_avg_m_s,
+            results.velocity_lap_m_s,
             g.channel_width_avg_m,
             depth_m,
             g.channel_length_m,
@@ -2155,7 +2159,7 @@ def main():
             param = s["parameter"]
             val = None
             if "velocidad" in param.lower():
-                val = results.velocity_avg_m_s
+                val = results.velocity_lap_m_s
             elif "profundidad" in param.lower():
                 val = depth_m
             elif "ancho" in param.lower():

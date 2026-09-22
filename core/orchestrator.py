@@ -486,6 +486,9 @@ class LazyRiverModel:
         else:
             lap_time = self.geometry.channel_length_m / velocity / 60 if velocity > 0 else 0
 
+        velocity_lap = (self.geometry.channel_length_m / (lap_time * 60)
+                        if lap_time > 0 else 0.0)
+
         alerts = self.safety.evaluate(self.hydraulic_stations)
         warnings = [f"{a.parameter}: {a.value:.2f} {a.unit} ({a.status})" for a in alerts]
         if pump_head_margin_m is not None and pump_head_margin_m < 0:
@@ -499,6 +502,7 @@ class LazyRiverModel:
             stations=self.hydraulic_stations,
             velocity_avg_m_s=np.mean([s.velocity_m_s for s in self.hydraulic_stations]),
             velocity_equivalent_m_s=velocity_equivalent,
+            velocity_lap_m_s=velocity_lap,
             velocity_min_m_s=min([s.velocity_m_s for s in self.hydraulic_stations]),
             velocity_max_m_s=max([s.velocity_m_s for s in self.hydraulic_stations]),
             total_flow_m3_s=Q_required_m3s,
@@ -547,7 +551,7 @@ class LazyRiverModel:
             'scenario_id': scenario_id,
             'name': scenario.name,
             'people_count': n_people,
-            'velocity_avg': result.velocity_avg_m_s,
+            'velocity_avg': result.velocity_lap_m_s,
             'user_velocity_estimated': user_velocity_estimated,
             'lap_time': result.lap_time_min,
             'total_flow': result.total_flow_m3_h,
@@ -610,7 +614,7 @@ class LazyRiverModel:
             'ancho_min_m': self.geometry.channel_width_min_m if self.geometry else 0,
             'ancho_max_m': self.geometry.channel_width_max_m if self.geometry else 0,
             'profundidad_m': r.stations[0].depth_m if r and r.stations else 0,
-            'velocidad_media': r.velocity_avg_m_s if r else 0,
+            'velocidad_media': r.velocity_lap_m_s if r else 0,
             'velocidad_min': r.velocity_min_m_s if r else 0,
             'velocidad_max': r.velocity_max_m_s if r else 0,
             'tiempo_vuelta_min': r.lap_time_min if r else 0,
@@ -634,7 +638,7 @@ class LazyRiverModel:
 
         # Run baseline
         baseline = self.compute_hydraulics(**base_params)
-        base_v = baseline.velocity_avg_m_s
+        base_v = baseline.velocity_lap_m_s
         base_tdh = baseline.total_system_tdh_m
         base_power = baseline.power_motor_kw
 
@@ -671,8 +675,8 @@ class LazyRiverModel:
             result_down = self.compute_hydraulics(**params_down)
 
             # Calculate deltas
-            dv_up = (result_up.velocity_avg_m_s - base_v) / base_v * 100 if base_v > 0 else 0
-            dv_down = (result_down.velocity_avg_m_s - base_v) / base_v * 100 if base_v > 0 else 0
+            dv_up = (result_up.velocity_lap_m_s - base_v) / base_v * 100 if base_v > 0 else 0
+            dv_down = (result_down.velocity_lap_m_s - base_v) / base_v * 100 if base_v > 0 else 0
             dtdh_up = (result_up.total_system_tdh_m - base_tdh) / base_tdh * 100 if base_tdh > 0 else 0
             dtdh_down = (result_down.total_system_tdh_m - base_tdh) / base_tdh * 100 if base_tdh > 0 else 0
             dpower_up = (result_up.power_motor_kw - base_power) / base_power * 100 if base_power > 0 else 0
@@ -735,7 +739,7 @@ class LazyRiverModel:
             # Run model
             try:
                 result = self.compute_hydraulics(**params)
-                v_samples.append(result.velocity_avg_m_s)
+                v_samples.append(result.velocity_lap_m_s)
                 tdh_samples.append(result.total_system_tdh_m)
                 power_samples.append(result.power_motor_kw)
             except:
