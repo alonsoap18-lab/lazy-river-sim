@@ -678,6 +678,13 @@ def main():
     if target_lap_time_min:
         total_pump_flow_effective = results.total_flow_m3_h
 
+    manual_calm_jets = []
+    if jet_chainages:
+        for jet in model.propulsion.get_active_jets():
+            station = min(results.stations, key=lambda s: abs(s.chainage_m - jet.station_m))
+            if station.zone_type == "calm":
+                manual_calm_jets.append(jet.jet_id)
+
     # Occupancy has no calibrated hydraulic-loss model or pump H-Q curve yet.
     # Keep all hydraulic outputs continuous with Q instead of changing only one
     # average-speed field.  It remains available as a user-simulation input.
@@ -732,6 +739,12 @@ def main():
         st.info(
             f"Objetivo: {target_lap_time_min:.1f} min/vuelta → caudal requerido {results.total_flow_m3_h:.0f} m³/h "
             f"({required_per_pump:.0f} m³/h por bomba; capacidad configurada: {pump_flow:.0f} m³/h, {capacity_status})."
+        )
+
+    if manual_calm_jets:
+        st.warning(
+            f"Jets manuales {', '.join(map(str, manual_calm_jets))} están en zona calma. "
+            "Se mantienen por ser una decisión editable, pero revise si contradicen la intención de playa/entrada."
         )
 
     # COMMERCIAL HP - highlighted
