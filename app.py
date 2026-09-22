@@ -33,7 +33,7 @@ st.markdown("""<style>
 </style>""", unsafe_allow_html=True)
 
 
-MODEL_CACHE_VERSION = "editable-propulsion-layout-1"
+MODEL_CACHE_VERSION = "multi-pump-scenarios-1"
 
 
 @st.cache_resource(show_spinner="Cargando geometria DXF...")
@@ -280,7 +280,7 @@ def make_system_curve_plot(model, depth_m, manning_n):
     return fig
 
 
-def generate_whats_happening(model, results, n_people, n_jets, depth_m, n_pumps=2, pump_flow=5400.0):
+def generate_whats_happening(model, results, n_people, n_jets, depth_m, n_pumps=2, target_lap_time_min=None):
     """Generate plain-language status report."""
     g = model.geometry
     lines = []
@@ -289,7 +289,7 @@ def generate_whats_happening(model, results, n_people, n_jets, depth_m, n_pumps=
 
     v = results.velocity_lap_m_s if results else 0
     lap = results.lap_time_min if results else 0
-    total_q = n_pumps * pump_flow
+    total_q = results.total_flow_m3_h if results else 0
 
     if v >= 0.3 and v <= 1.0:
         lines.append("El Lazy River esta funcionando en condiciones normales segun el modelo.")
@@ -300,15 +300,16 @@ def generate_whats_happening(model, results, n_people, n_jets, depth_m, n_pumps=
 
     lines.append("")
     lines.append(f"**Como se calcula:**")
-    lines.append(f"- Las {n_pumps} bombas entregan {total_q:.0f} m3/h de caudal total")
+    flow_description = "requerido" if target_lap_time_min else "configurado"
+    lines.append(f"- El caudal {flow_description} es {total_q:.0f} m3/h: {total_q / n_pumps:.0f} m3/h por cada una de {n_pumps} bombas en operación")
     lines.append(f"- El area del canal es {g.channel_width_avg_m:.1f} m x {depth_m:.2f} m = {g.channel_width_avg_m*depth_m:.1f} m2")
-    lines.append(f"- La velocidad es V = Q/A = {v:.3f} m/s ({v*3.6:.1f} km/h)")
-    lines.append(f"- El tiempo de vuelta es T = L/V = {lap:.1f} minutos")
+    lines.append(f"- La velocidad de recorrido es L/T = {v:.3f} m/s ({v*3.6:.1f} km/h)")
+    lines.append(f"- El tiempo de vuelta integrado es {lap:.1f} minutos")
     lines.append("")
     lines.append(f"**Si cambias los parametros:**")
-    lines.append(f"- Mas bombas o mas caudal → mas velocidad → menos tiempo de vuelta")
+    lines.append(f"- Con caudal total fijo, más bombas reducen el caudal y la potencia por bomba; el tiempo de vuelta depende del caudal total")
     lines.append(f"- Mas Manning n (rugosidad) → mas perdidas → el TDH aumenta → necesitas bombas mas potentes")
-    lines.append(f"- Mas personas → mas resistencia → la velocidad baja un poco")
+    lines.append(f"- La ocupación aún no cambia el cálculo hidráulico: falta calibrar ese efecto")
     lines.append("")
     lines.append(f"- Jets: {n_jets} (distribuyen el flujo en el canal)")
     lines.append(f"- Profundidad: {depth_m:.2f} m")
@@ -525,8 +526,9 @@ def main():
             "Tiempo objetivo por vuelta (min)", 5.0, 120.0, 20.0, 0.5,
             help="El modelo ajusta el caudal requerido usando toda la geometría del DXF para cumplir este tiempo."
         )
-    n_pumps = st.sidebar.number_input("Numero de bombas", 1, 4, 4, 1)
-    pump_flow = st.sidebar.number_input("Caudal por bomba (m3/h)", 100.0, 20000.0, 4400.0, 100.0,
+    n_pumps = st.sidebar.number_input("Numero de bombas en operación", 1, 40, 4, 1,
+                                      help="Bombas en paralelo que aportan caudal. La potencia y el caudal requeridos por bomba se recalculan al cambiar este número.")
+    pump_flow = st.sidebar.number_input("Caudal por bomba (m3/h)", 10.0, 20000.0, 4400.0, 1.0,
                                          help="Caudal que cada bomba entrega. En modo tiempo objetivo se usa para comparar la capacidad por bomba requerida.")
     pump_efficiency = st.sidebar.slider("Eficiencia bomba", 0.5, 0.9, 0.75, 0.05,
                                          help="Eficiencia de la bomba. Afecta la potencia requerida.")
@@ -534,9 +536,9 @@ def main():
                                          help="Valor nominal para contrastar con el TDH calculado. No sustituye la curva H-Q certificada ni modifica el caudal configurado.")
 
     st.sidebar.subheader("Cuartos de Bombas")
-    n_pump_rooms = st.sidebar.number_input("Numero de cuartos de bombas", 1, 4, 4, 1,
-                                            help="Mas cuartos = tuberias mas cortas = menos perdidas = menos HP. "
-                                                 "4 cuartos: a 1/8, 3/8, 5/8 y 7/8 del circuito.")
+    n_pump_rooms = st.sidebar.number_input("Numero de cuartos de bombas", 1, 20, 4, 1,
+                                            help="La propuesta automática distribuye los cuartos a lo largo del circuito. "
+                                                 "Cada cuarto puede alojar varias bombas; su ubicación afecta la longitud estimada de tuberías.")
 
     st.sidebar.subheader("Jets")
     n_jets = st.sidebar.number_input("Numero de jets", 1, 30, 16, 1,
@@ -678,6 +680,8 @@ def main():
     if target_lap_time_min:
         total_pump_flow_effective = results.total_flow_m3_h
 
+    effective_room_count = len(pump_room_chainages) if pump_room_chainages else n_pump_rooms
+
     manual_calm_jets = []
     if jet_chainages:
         for jet in model.propulsion.get_active_jets():
@@ -741,6 +745,12 @@ def main():
             f"({required_per_pump:.0f} m³/h por bomba; capacidad configurada: {pump_flow:.0f} m³/h, {capacity_status})."
         )
 
+    st.caption(
+        f"Distribución conceptual: {n_pumps} bombas en {effective_room_count} cuartos "
+        f"(aprox. {n_pumps / effective_room_count:.1f} bombas/cuarto). "
+        "El TDH y los HP dependen también de la cantidad y trazado preliminar de tuberías."
+    )
+
     if manual_calm_jets:
         st.warning(
             f"Jets manuales {', '.join(map(str, manual_calm_jets))} están en zona calma. "
@@ -756,8 +766,8 @@ def main():
               help="HP comercial por bomba = HP total / numero de bombas")
     c7.metric("Potencia teorica", f"{results.theoretical_kw:.1f} kW",
               help="Potencia teorica (informativa)")
-    c8.metric("Bombas", f"{n_pumps} x {pump_flow:.0f} m3/h",
-              help="Configuracion de bombas")
+    c8.metric("Bombas en operación", f"{n_pumps} × {results.total_flow_m3_h / n_pumps:.0f} m³/h",
+              help="Caudal hidráulico requerido por bomba. En modo tiempo objetivo, compárelo con la capacidad nominal configurada arriba.")
 
     # TDH breakdown
     st.markdown("#### DESGLOSE DEL TDH DEL SISTEMA")
@@ -922,7 +932,7 @@ def main():
 
     # "What's happening" button
     with st.expander("QUE ESTA PASANDO? (Explicacion simple)"):
-        report = generate_whats_happening(model, results, n_people, n_jets, depth_m, n_pumps, pump_flow)
+        report = generate_whats_happening(model, results, n_people, n_jets, depth_m, n_pumps, target_lap_time_min)
         st.markdown(report)
 
     # Tabs
@@ -991,10 +1001,11 @@ def main():
         explain("Velocidad del agua",
                 f"La velocidad de recorrido es {results.velocity_lap_m_s:.3f} m/s ({results.velocity_lap_m_s*3.6:.1f} km/h). "
                 f"El agua tarda {results.lap_time_min:.1f} minutos en completar una vuelta.\n\n"
-                f"**La velocidad depende de los jets:** {n_jets} jets inyectan {Q_jets_total:.0f} m3/h, "
-                f"lo que genera {v_from_jets:.3f} m/s. Si aumentas los jets, la velocidad aumenta.",
+                f"Los {n_jets} jets distribuyen {Q_jets_total:.0f} m3/h. "
+                f"La velocidad equivalente Q/A promedio es {v_from_jets:.3f} m/s; "
+                "cambiar solo el número de jets no aumenta el caudal total.",
                 f"Calculo de velocidad:\n"
-                f"  Q_jets = {n_jets} jets x {total_pump_flow/n_jets:.1f} m3/h = {Q_jets_total:.0f} m3/h\n"
+                f"  Q_jets = {n_jets} jets x {Q_jets_total/n_jets:.1f} m3/h = {Q_jets_total:.0f} m3/h\n"
                 f"  Area canal = {g.channel_width_avg_m:.1f} x {depth_m:.2f} = {A_channel:.1f} m2\n"
                 f"  V_jets = Q/A = {v_from_jets:.3f} m/s\n"
                 f"  V_manning (resistencia) = referencia\n"
@@ -1031,10 +1042,10 @@ def main():
             fig_op = go.Figure()
 
             # Generate system curve
-            q_range = np.linspace(0, total_pump_flow * 1.5, 50)
+            q_range = np.linspace(0, results.total_flow_m3_h * 1.5, 50)
             sys_h = model.hydraulics.system_curve(q_range, model.hydraulic_stations)
 
-            # Generate combined pump curve
+            # Generate combined pump curve (illustrative; not a manufacturer H-Q curve)
             pump_curve = model.pumps.get_combined_pump_curve(50)
             q_pump = pump_curve['q_m3h']
             h_pump = pump_curve['head_m']
@@ -1051,7 +1062,7 @@ def main():
                 mode='lines', name=f'Curva Bomba ({pump_curve.get("n_pumps", 1)} bombas)',
                 line=dict(color='red', width=2)))
 
-            # Mark operating point
+            # Mark illustrative operating point
             op = model.pumps.find_operating_point(
                 lambda q: float(np.interp(q, q_range, sys_h)))
             fig_op.add_trace(go.Scatter(
@@ -1060,7 +1071,8 @@ def main():
                 marker=dict(size=12, color='green', symbol='star'),
                 text=[f"Punto op.\nQ={op['q_operating']:.0f} m3/h\nH={op['h_operating']:.2f}m"],
                 textposition='top center',
-                name='Punto de operacion'))
+                name='Punto ilustrativo'))
+            st.caption("Curvas de bomba ilustrativas. Para elegir un modelo comercial se requiere la curva H–Q de cada bomba y del sistema de tuberías diseñado.")
 
             # Mark BEP range
             if pump_curve.get('q_bep'):
@@ -1166,10 +1178,17 @@ def main():
                     "manning_n": manning_n,
                     "n_jets": n_jets,
                     "jet_diameter_m": jet_diam,
-                    "pump_flow_m3_h": total_pump_flow,
+                    "pump_flow_m3_h": (None if target_lap_time_min else total_pump_flow_effective),
+                    "target_lap_time_min": target_lap_time_min,
                     "n_pumps": n_pumps,
                     "safety_factor": safety_factor,
                     "n_pump_rooms": n_pump_rooms,
+                    "pump_efficiency": pump_efficiency,
+                    "water_temp_c": water_temp,
+                    "pump_head_available_m": pump_head,
+                    "calm_zone_width_m": calm_zone_width_m,
+                    "pump_room_chainages": pump_room_chainages,
+                    "jet_chainages": jet_chainages,
                 }
                 sensitivity = model.sensitivity_analysis(base_params, variation_pct=20.0)
 
@@ -1246,10 +1265,17 @@ def main():
                     "manning_n": manning_n,
                     "n_jets": n_jets,
                     "jet_diameter_m": jet_diam,
-                    "pump_flow_m3_h": total_pump_flow,
+                    "pump_flow_m3_h": (None if target_lap_time_min else total_pump_flow_effective),
+                    "target_lap_time_min": target_lap_time_min,
                     "n_pumps": n_pumps,
                     "safety_factor": safety_factor,
                     "n_pump_rooms": n_pump_rooms,
+                    "pump_efficiency": pump_efficiency,
+                    "water_temp_c": water_temp,
+                    "pump_head_available_m": pump_head,
+                    "calm_zone_width_m": calm_zone_width_m,
+                    "pump_room_chainages": pump_room_chainages,
+                    "jet_chainages": jet_chainages,
                 }
                 uncertainty = model.uncertainty_analysis(base_params, n_samples=100)
 
@@ -1463,7 +1489,7 @@ def main():
                         f"- Q = {total_pump_flow_effective:.0f} m3/h\n"
                         f"- H = {results.total_system_tdh_m:.2f} m\n"
                         f"- Potencia = {results.total_hp:.0f} HP ({results.pump_hp:.0f} HP/bomba)\n"
-                        f"- Configuracion: {n_pumps} bombas en {n_pump_rooms} cuarto(s)"
+                        f"- Configuracion: {n_pumps} bombas en {effective_room_count} cuarto(s)"
                     )
 
                 # Show verified pumps info
@@ -2195,7 +2221,7 @@ def main():
             g.channel_width_avg_m,
             depth_m,
             g.channel_length_m,
-            total_pump_flow,
+            results.total_flow_m3_h,
             results.power_motor_kw
         )
 
@@ -2388,7 +2414,7 @@ def main():
                     showlegend=(pr['room_id'] == 1),
                     hovertemplate=f"Cuarto de bombas {pr['room_id']}<br>"
                                   f"Chainage: {pr['chainage']:.0f}m<br>"
-                                  f"Caudal: {total_pump_flow/n_pump_rooms:.0f} m3/h<br>"
+                                  f"Caudal aprox.: {results.total_flow_m3_h/len(pump_room_positions):.0f} m3/h<br>"
                                   f"TDH: {results.total_system_tdh_m:.2f}m<extra></extra>"))
 
             # Pipe runs (from nearest pump room to each jet)
@@ -2487,7 +2513,7 @@ def main():
                     # Show pump rooms info
                     for pr in pump_room_positions:
                         st.markdown(f"**Cuarto {pr['room_id']}:** Chainage {pr['chainage']:.0f}m | "
-                                   f"Caudal: {total_pump_flow/n_pump_rooms:.0f} m3/h")
+                                   f"Caudal aprox.: {results.total_flow_m3_h/len(pump_room_positions):.0f} m3/h")
 
                     st.markdown("---")
                     pump_data = []
@@ -2503,13 +2529,13 @@ def main():
                         })
                     st.dataframe(pump_data, use_container_width=True)
 
-                    st.markdown(f"**Caudal total:** {total_pump_flow:.0f} m3/h")
+                    st.markdown(f"**Caudal total del modelo:** {results.total_flow_m3_h:.0f} m3/h")
                     st.markdown(f"**TDH sistema:** {results.total_system_tdh_m:.2f} m")
 
             with col_pipe:
                 st.subheader("Tuberias")
                 n_pipes = max(n_pumps, 2)
-                Q_per_pipe = (total_pump_flow / 3600) / n_pipes
+                Q_per_pipe = results.total_flow_m3_s / n_pipes
                 v_target = 2.5
                 d_pipe = np.sqrt(4 * Q_per_pipe / (np.pi * v_target))
                 d_pipe = max(0.300, min(d_pipe, 0.800))

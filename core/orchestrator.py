@@ -691,16 +691,16 @@ class LazyRiverModel:
         param_configs = [
             ("depth_m", 0.5, 2.0),
             ("manning_n", 0.010, 0.025),
-            ("n_jets", 2, 20),
+            ("n_jets", 2, 30),
             ("jet_diameter_m", 0.100, 0.800),
             ("pump_flow_m3_h", 1000, 30000),
-            ("n_pumps", 1, 4),
+            ("n_pumps", 1, 40),
             ("safety_factor", 1.0, 2.0),
         ]
 
         results = []
         for param_name, param_min, param_max in param_configs:
-            if param_name not in base_params:
+            if param_name not in base_params or base_params[param_name] is None:
                 continue
 
             base_val = base_params[param_name]
@@ -709,14 +709,14 @@ class LazyRiverModel:
             params_up = copy.deepcopy(base_params)
             val_up = base_val * (1 + variation_pct / 100)
             val_up = min(val_up, param_max)
-            params_up[param_name] = val_up
+            params_up[param_name] = int(round(val_up)) if param_name in ("n_pumps", "n_jets") else val_up
             result_up = self.compute_hydraulics(**params_up)
 
             # Vary down
             params_down = copy.deepcopy(base_params)
             val_down = base_val * (1 - variation_pct / 100)
             val_down = max(val_down, param_min)
-            params_down[param_name] = val_down
+            params_down[param_name] = int(round(val_down)) if param_name in ("n_pumps", "n_jets") else val_down
             result_down = self.compute_hydraulics(**params_down)
 
             # Calculate deltas
@@ -777,7 +777,7 @@ class LazyRiverModel:
 
             # Vary parameters within uncertainty
             for param, pct in uncertainty.items():
-                if param in params:
+                if param in params and params[param] is not None:
                     factor = rng.normal(1.0, pct)
                     params[param] = params[param] * factor
 

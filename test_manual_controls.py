@@ -91,6 +91,21 @@ def test_target_lap_time_drives_flow_and_returns_the_requested_time():
     assert abs(short_lap.velocity_lap_m_s - base.geometry.channel_length_m / (short_lap.lap_time_min * 60.0)) < 1e-12
 
 
+def test_twenty_pumps_share_the_forty_minute_duty_point():
+    base = base_model()
+    settings = dict(target_lap_time_min=40.0, pump_flow_m3_h=None,
+                    calm_zone_width_m=15.0, n_pump_rooms=4)
+    three_model, three = calculate(base, n_pumps=3, **settings)
+    twenty_model, twenty = calculate(base, n_pumps=20, **settings)
+
+    assert abs(twenty.lap_time_min - 40.0) < 0.02
+    assert abs(three.total_flow_m3_h - twenty.total_flow_m3_h) < 0.01
+    assert len(twenty_model.pumps.pumps) == 20
+    assert abs(sum(p.flow_m3_h for p in twenty_model.pumps.pumps) - twenty.total_flow_m3_h) < 0.01
+    assert abs(twenty.pump_hp - twenty.total_hp / 20) < 1e-12
+    assert twenty.pump_hp < three.pump_hp
+
+
 def test_wide_dxf_sections_are_editable_calm_zones_and_volume_is_positive():
     base = base_model()
     model, result = calculate(base, calm_zone_width_m=15.0)
@@ -127,6 +142,7 @@ if __name__ == "__main__":
     test_controls_propagate_to_their_respective_outputs()
     test_manual_width_isolated_from_the_cached_base_geometry()
     test_target_lap_time_drives_flow_and_returns_the_requested_time()
+    test_twenty_pumps_share_the_forty_minute_duty_point()
     test_wide_dxf_sections_are_editable_calm_zones_and_volume_is_positive()
     test_automatic_jets_avoid_calm_zones_and_manual_layout_is_honored()
     print("Manual-control regression checks passed")
