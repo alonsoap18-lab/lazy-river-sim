@@ -494,7 +494,7 @@ def main():
     pump_efficiency = st.sidebar.slider("Eficiencia bomba", 0.5, 0.9, 0.75, 0.05,
                                          help="Eficiencia de la bomba. Afecta la potencia requerida.")
     pump_head = st.sidebar.number_input("TDH disponible (m)", 0.5, 30.0, 5.0, 0.5,
-                                         help="Altura dinamica total que la bomba puede vencer. Si es menor que las perdidas, la velocidad se reduce.")
+                                         help="Valor nominal para contrastar con el TDH calculado. No sustituye la curva H-Q certificada ni modifica el caudal configurado.")
 
     st.sidebar.subheader("Cuartos de Bombas")
     n_pump_rooms = st.sidebar.number_input("Numero de cuartos de bombas", 1, 4, 4, 1,
@@ -597,7 +597,8 @@ def main():
                                         n_pumps=n_pumps,
                                         safety_factor=safety_factor,
                                         n_pump_rooms=n_pump_rooms,
-                                        water_temp_c=water_temp)
+                                        water_temp_c=water_temp,
+                                        pump_head_available_m=pump_head)
 
     # Apply people effect
     if n_people > 0 and results:
@@ -615,7 +616,7 @@ def main():
 
     # Separate flows
     g = model.geometry
-    Q_canal = g.channel_width_avg_m * depth_m * results.velocity_avg_m_s * 3600 if results else 0
+    Q_canal = results.total_flow_m3_h if results else 0
     Q_propulsion = model.propulsion.total_flow_m3_h() if model.propulsion else 0
     Q_total_system = Q_propulsion + Q_filtration
 
@@ -625,19 +626,31 @@ def main():
     # Dashboard - show how configuration drives results
     st.markdown("---")
     channel_area = g.channel_width_avg_m * depth_m
-    Q_required_m3s = total_pump_flow / 3600
-    st.markdown("### RESULTADOS (calculados de la configuracion de bombas)")
+    Q_required_m3s = results.total_flow_m3_s if results else 0
+    st.markdown("### RESULTADOS PRELIMINARES (no aptos para construcción ni certificación de seguridad)")
 
     # Main results row
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Q bombas", f"{total_pump_flow:.0f} m3/h",
               help="Caudal total de las bombas configuradas")
-    c2.metric("Velocidad", f"{results.velocity_avg_m_s:.3f} m/s",
-              help="V = Q_bombas / Area_canal")
-    c3.metric("Tiempo/vuelta", f"{results.lap_time_min:.1f} min",
-              help="T = Longitud / Velocidad")
+    c2.metric("V equivalente (Q/A promedio)", f"{results.velocity_equivalent_m_s:.3f} m/s",
+              help="Q real del modelo dividido entre el área con ancho promedio del DXF.")
+    c3.metric("V local (mín–máx)", f"{results.velocity_min_m_s:.3f}–{results.velocity_max_m_s:.3f} m/s",
+              help="Rango de velocidad por sección; permite detectar zonas lentas o rápidas.")
     c4.metric("TDH Sistema", f"{results.total_system_tdh_m:.2f} m",
               help="TDH total = friccion canal + perdidas boquillas + friccion tuberias")
+
+    if results.pump_head_margin_m < 0:
+        st.error(
+            f"El TDH nominal configurado ({pump_head:.2f} m) es menor que el TDH estimado "
+            f"({results.total_system_tdh_m:.2f} m). El caudal configurado no está demostrado: "
+            "confírmalo con una curva H-Q certificada."
+        )
+    else:
+        st.info(
+            f"Margen nominal de TDH: {results.pump_head_margin_m:.2f} m. "
+            "Comprobación preliminar: falta validar el punto de operación con la curva H-Q del fabricante."
+        )
 
     # COMMERCIAL HP - highlighted
     st.markdown("#### POTENCIA COMERCIAL REQUERIDA")
@@ -749,7 +762,8 @@ def main():
     Bombas: {n_pumps} x {pump_flow:.0f} m3/h = {total_pump_flow:.0f} m3/h
     {f"VFD: {vfd_speed_pct:.0f}% → Q efectivo = {total_pump_flow_effective:.0f} m3/h" if use_vfd and vfd_speed_pct < 100 else ""}
     Area canal: {g.channel_width_avg_m:.1f} m x {depth_m:.2f} m = {channel_area:.1f} m2
-    Velocidad: {total_pump_flow_effective:.0f} / 3600 / {channel_area:.1f} = {results.velocity_avg_m_s:.3f} m/s
+    Velocidad equivalente Q/A promedio: {results.total_flow_m3_h:.0f} / 3600 / {channel_area:.1f} = {results.velocity_equivalent_m_s:.3f} m/s
+    Velocidad local: min={results.velocity_min_m_s:.3f}, promedio espacial={results.velocity_avg_m_s:.3f}, max={results.velocity_max_m_s:.3f} m/s
     TDH sistema: {results.canal_friction_m:.3f} + {results.nozzle_loss_m:.3f} + {results.pipe_friction_m:.3f} = {results.total_system_tdh_m:.3f} m
     Potencia: (998 x 9.81 x {Q_required_m3s:.3f} x {results.total_system_tdh_m:.3f}) / {pump_efficiency:.2f} = {results.total_power_watts:.0f} W
     HP total: {results.total_power_watts:.0f} / 745.7 = {results.total_hp:.1f} HP
@@ -1558,13 +1572,13 @@ def main():
                     mode='lines', name='Muro Interior',
                     line=dict(color='darkred', width=2)))
 
-            # Velocity heatmap (colored by ASTM/IAAPA compliance)
-            # Green: 0.3-0.6 m/s (ASTM OK)
+            # Velocity heatmap using preliminary engineering screening bands.
+            # These bands are not a compliance certification.
             # Yellow: 0.2-0.3 or 0.6-0.8 m/s (Review)
             # Red: <0.2 or >0.8 m/s (Critical)
             for i in range(len(cl_x) - 1):
                 v = velocities[i]
-                # ASTM/IAAPA compliance coloring
+                # Preliminary screening coloring
                 if 0.3 <= v <= 0.6:
                     color = 'rgba(0,180,0,0.7)'  # Green - compliant
                 elif 0.2 <= v < 0.3 or 0.6 < v <= 0.8:
@@ -1708,7 +1722,7 @@ def main():
             fr_max = max(froude_numbers) if froude_numbers else 0
             fr_status = "OK" if fr_max < 0.8 else ("REVISAR" if fr_max < 1.0 else "CRITICO")
             c5.metric("Froude max", f"{fr_max:.2f} ({fr_status})",
-                      help="Fr < 0.8: seguro. Fr = 1.0: critico. Fr > 1.0: supercritico (peligroso). ASTM F2376.")
+                      help="Criterio hidráulico preliminar: Fr < 0.8 mantiene flujo subcrítico. Requiere validación del ingeniero responsable.")
 
             # Smart jet placement info
             jets = model.propulsion.get_active_jets() if model.propulsion else []

@@ -124,6 +124,9 @@ class HydraulicResults:
     """Results from hydraulic analysis."""
     stations: List[Station] = field(default_factory=list)
     velocity_avg_m_s: float = 0.0
+    # Distinct from velocity_avg_m_s, which is the spatial arithmetic mean
+    # of local station velocities.
+    velocity_equivalent_m_s: float = 0.0
     velocity_min_m_s: float = 0.0
     velocity_max_m_s: float = 0.0
     total_flow_m3_s: float = 0.0
@@ -145,6 +148,8 @@ class HydraulicResults:
     total_hp: float = 0.0
     pump_hp: float = 0.0
     theoretical_kw: float = 0.0
+    pump_head_available_m: float = 0.0
+    pump_head_margin_m: float = 0.0
 
 
 @dataclass

@@ -123,7 +123,8 @@ class LazyRiverModel:
                             n_pumps: int = 2,
                             safety_factor: float = 1.15,
                             n_pump_rooms: int = 1,
-                            water_temp_c: float = 25.0) -> HydraulicResults:
+                            water_temp_c: float = 25.0,
+                            pump_head_available_m: float = None) -> HydraulicResults:
         if not self.stations:
             self.results = HydraulicResults()
             return self.results
@@ -386,6 +387,12 @@ class LazyRiverModel:
         # 5f. TOTAL SYSTEM TDH
         total_system_tdh = canal_friction + nozzle_loss + pipe_friction + minor_losses + diffuser_loss
 
+        # Capacity check only. A real operating point requires a manufacturer
+        # H-Q curve, so never silently reduce the configured flow here.
+        pump_head_margin_m = None
+        if pump_head_available_m is not None:
+            pump_head_margin_m = pump_head_available_m - total_system_tdh
+
         # === STEP 6: Calculate COMMERCIAL POWER ===
         # P_hyd = rho × g × Q × TDH  (hydraulic power to move water)
         # P_motor = P_hyd / efficiency  (motor must provide more due to losses)
@@ -465,10 +472,18 @@ class LazyRiverModel:
             lap_time = self.geometry.channel_length_m / velocity / 60 if velocity > 0 else 0
 
         alerts = self.safety.evaluate(self.hydraulic_stations)
+        warnings = [f"{a.parameter}: {a.value:.2f} {a.unit} ({a.status})" for a in alerts]
+        if pump_head_margin_m is not None and pump_head_margin_m < 0:
+            warnings.append(
+                f"TDH nominal insuficiente: disponible={pump_head_available_m:.2f} m, "
+                f"requerido={total_system_tdh:.2f} m. Verificar el punto H-Q con la curva del fabricante."
+            )
+        velocity_equivalent = Q_required_m3s / channel_area if channel_area > 0 else 0.0
 
         self.results = HydraulicResults(
             stations=self.hydraulic_stations,
             velocity_avg_m_s=np.mean([s.velocity_m_s for s in self.hydraulic_stations]),
+            velocity_equivalent_m_s=velocity_equivalent,
             velocity_min_m_s=min([s.velocity_m_s for s in self.hydraulic_stations]),
             velocity_max_m_s=max([s.velocity_m_s for s in self.hydraulic_stations]),
             total_flow_m3_s=Q_required_m3s,
@@ -480,7 +495,7 @@ class LazyRiverModel:
             power_hydraulic_kw=hydraulic_power_kw,
             power_motor_kw=total_hp * 745.7 / 1000,  # HP to kW
             losses=losses,
-            warnings=[f"{a.parameter}: {a.value:.2f} {a.unit} ({a.status})" for a in alerts],
+            warnings=warnings,
             # Commercial power fields
             total_system_tdh_m=total_system_tdh,
             nozzle_loss_m=nozzle_loss,
@@ -490,6 +505,8 @@ class LazyRiverModel:
             total_hp=total_hp,
             pump_hp=pump_hp,
             theoretical_kw=theoretical_kw,
+            pump_head_available_m=pump_head_available_m or 0.0,
+            pump_head_margin_m=pump_head_margin_m if pump_head_margin_m is not None else 0.0,
         )
 
         return self.results
@@ -546,6 +563,15 @@ class LazyRiverModel:
                     issues.append(f"Negative velocity at station {s.station_id}")
                 if s.area_m2 <= 0:
                     issues.append(f"Zero area at station {s.station_id}")
+        if not self.validation.field_data:
+            issues.append("No field measurements loaded: the model has not been calibrated")
+        if self.results and self.results.total_flow_m3_s > 0 and self.hydraulic_stations:
+            max_flow_error = max(
+                abs(s.flow_m3_s - self.results.total_flow_m3_s)
+                for s in self.hydraulic_stations
+            )
+            if max_flow_error > self.results.total_flow_m3_s * 1e-6:
+                issues.append("Flow continuity check failed across hydraulic stations")
         return issues
 
     def export_stations_csv(self) -> str:

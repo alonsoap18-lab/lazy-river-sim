@@ -32,9 +32,9 @@ class SafetyEngine:
             'parameter': 'Froude maximo',
             'limit': 0.80,
             'unit': '-',
-            'source': 'ASTM F2376 / IAAPA',
+            'source': 'CRITERIO HIDRÁULICO PRELIMINAR — requiere validación del ingeniero responsable',
             'type': 'max',
-            'note': 'Fr < 0.8 para lazy river familiar. Fr > 1.0 = flujo supercritico (peligroso).',
+            'note': 'Umbral preliminar para mantener flujo subcrítico; no constituye certificación normativa.',
         },
     ]
 
