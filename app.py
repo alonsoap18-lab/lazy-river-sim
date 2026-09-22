@@ -2616,4 +2616,7 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    # The active product experience is the Riverflow-specific Phase-1 model.
+    # The former generic simulator remains here for historical reference.
+    from riverflow_app import main as riverflow_main
+    riverflow_main()
