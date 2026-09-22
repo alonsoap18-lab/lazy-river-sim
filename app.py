@@ -33,7 +33,7 @@ st.markdown("""<style>
 </style>""", unsafe_allow_html=True)
 
 
-MODEL_CACHE_VERSION = "phase1-zoning-treatment-2"
+MODEL_CACHE_VERSION = "editable-propulsion-layout-1"
 
 
 @st.cache_resource(show_spinner="Cargando geometria DXF...")
@@ -48,6 +48,17 @@ def load_model(dxf_path, length_m, cache_version):
     m.load_dxf(path=dxf_path)
     m.build_centerline(resolution_m=0.5, target_length_m=length_m)
     return m
+
+
+def parse_chainages(value, maximum):
+    """Parse editable comma-separated chainages, keeping valid unique values."""
+    try:
+        values = [float(item.strip()) for item in value.split(',') if item.strip()]
+    except ValueError:
+        return None
+    if not values or any(item < 0 or item > maximum for item in values):
+        return None
+    return list(dict.fromkeys(values))
 
 
 def explain(label, simple, technical, status="INFO"):
@@ -533,6 +544,32 @@ def main():
     jet_diam = st.sidebar.number_input("Diametro jet (m)", 0.050, 1.000, 0.450, 0.050,
                                         help="Diametro de la boquilla del jet. Afecta la velocidad de salida.")
 
+    st.sidebar.subheader("Layout de Propulsión")
+    layout_mode = st.sidebar.radio(
+        "Ubicación de cuartos y jets", ["Propuesta automática", "Editar por chainage"],
+        help="La propuesta automática evita zonas calmas. En modo manual, ingrese chainages en metros desde el inicio del recorrido."
+    )
+    pump_room_chainages = None
+    jet_chainages = None
+    if layout_mode == "Editar por chainage":
+        rooms_text = st.sidebar.text_input(
+            "Cuartos / manifolds (m, separados por coma)",
+            value=", ".join(f"{length_m * (2 * i + 1) / (2 * n_pump_rooms):.0f}" for i in range(n_pump_rooms)),
+        )
+        jets_text = st.sidebar.text_area(
+            "Jets (m, separados por coma)",
+            value=", ".join(f"{length_m * (i + 1) / (n_jets + 1):.0f}" for i in range(n_jets)),
+            height=68,
+        )
+        pump_room_chainages = parse_chainages(rooms_text, length_m)
+        jet_chainages = parse_chainages(jets_text, length_m)
+        if pump_room_chainages is None or jet_chainages is None:
+            st.sidebar.error("Use valores entre 0 y la longitud del circuito, separados por coma.")
+            pump_room_chainages = None
+            jet_chainages = None
+        else:
+            n_jets = len(jet_chainages)
+
     st.sidebar.subheader("VFD (Variador de Frecuencia)")
     use_vfd = False
     if calculation_basis == "Caudal configurado de bombas":
@@ -633,7 +670,9 @@ def main():
                                         n_pump_rooms=n_pump_rooms,
                                         water_temp_c=water_temp,
                                         pump_head_available_m=pump_head,
-                                        calm_zone_width_m=calm_zone_width_m)
+                                        calm_zone_width_m=calm_zone_width_m,
+                                        pump_room_chainages=pump_room_chainages,
+                                        jet_chainages=jet_chainages)
 
     # All secondary views and scenarios use the actual flow selected above.
     if target_lap_time_min:
@@ -1954,7 +1993,10 @@ def main():
                                        safety_factor=safety_factor,
                                        n_pump_rooms=n_pump_rooms,
                                        water_temp_c=water_temp,
-                                       pump_head_available_m=pump_head)
+                                       pump_head_available_m=pump_head,
+                                       calm_zone_width_m=calm_zone_width_m,
+                                       pump_room_chainages=pump_room_chainages,
+                                       jet_chainages=jet_chainages)
 
             comparison = model.scenarios.compare_results()
             if comparison:
@@ -2306,10 +2348,11 @@ def main():
             # 2 rooms: 25% and 75%
             # 3 rooms: 16.7%, 50%, 83.3%
             pump_room_positions = []
-            for room_i in range(n_pump_rooms):
-                # Strategic position: (2*room_i + 1) / (2 * n_pump_rooms) of circuit
-                frac = (2 * room_i + 1) / (2 * n_pump_rooms)
-                target_chainage = frac * total_length
+            infrastructure_room_chainages = pump_room_chainages or [
+                ((2 * room_i + 1) / (2 * n_pump_rooms)) * total_length
+                for room_i in range(n_pump_rooms)
+            ]
+            for room_i, target_chainage in enumerate(infrastructure_room_chainages):
                 # Find closest station
                 closest_idx = min(range(len(chainages)), key=lambda i: abs(chainages[i] - target_chainage))
                 pump_room_positions.append({

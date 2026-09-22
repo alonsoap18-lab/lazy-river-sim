@@ -105,9 +105,28 @@ def test_wide_dxf_sections_are_editable_calm_zones_and_volume_is_positive():
     assert minimum_alert.value == current_min
 
 
+def test_automatic_jets_avoid_calm_zones_and_manual_layout_is_honored():
+    base = base_model()
+    automatic_model, automatic = calculate(base, calm_zone_width_m=15.0, n_jets=8)
+    assert all(
+        next(station.zone_type for station in automatic.stations
+             if abs(station.chainage_m - jet.station_m) < 0.3) == "current"
+        for jet in automatic_model.propulsion.get_active_jets()
+    )
+    manual_model, _ = calculate(
+        base, calm_zone_width_m=15.0,
+        pump_room_chainages=[100.0, 300.0], jet_chainages=[50.0, 150.0, 350.0], n_jets=3,
+    )
+    assert [round(jet.station_m) for jet in manual_model.propulsion.get_active_jets()] == [50, 150, 350]
+    _, distributed = calculate(base, calm_zone_width_m=15.0, pump_room_chainages=[67.0, 201.0, 335.0, 469.0])
+    _, centralized = calculate(base, calm_zone_width_m=15.0, pump_room_chainages=[268.0])
+    assert distributed.pipe_friction_m != centralized.pipe_friction_m
+
+
 if __name__ == "__main__":
     test_controls_propagate_to_their_respective_outputs()
     test_manual_width_isolated_from_the_cached_base_geometry()
     test_target_lap_time_drives_flow_and_returns_the_requested_time()
     test_wide_dxf_sections_are_editable_calm_zones_and_volume_is_positive()
+    test_automatic_jets_avoid_calm_zones_and_manual_layout_is_honored()
     print("Manual-control regression checks passed")

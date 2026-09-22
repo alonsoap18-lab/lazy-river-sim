@@ -126,7 +126,9 @@ class LazyRiverModel:
                             n_pump_rooms: int = 1,
                             water_temp_c: float = 25.0,
                             pump_head_available_m: float = None,
-                            calm_zone_width_m: float = None) -> HydraulicResults:
+                            calm_zone_width_m: float = None,
+                            pump_room_chainages: list = None,
+                            jet_chainages: list = None) -> HydraulicResults:
         if not self.stations:
             self.results = HydraulicResults()
             return self.results
@@ -184,12 +186,22 @@ class LazyRiverModel:
             station['zone_type'] = ('calm' if calm_zone_width_m is not None
                                     and station['width_m'] >= calm_zone_width_m else 'current')
 
+        if pump_room_chainages:
+            room_chainages = sorted(
+                max(0.0, min(float(c), total_length)) for c in pump_room_chainages
+            )
+        else:
+            room_chainages = [((2 * i + 1) / (2 * n_pump_rooms)) * total_length
+                              for i in range(n_pump_rooms)]
+        n_effective_rooms = max(1, len(room_chainages))
+
         # === STEP 1.5: Pre-calculate pipe parameters for jet model ===
         # These are needed for individual jet pressure calculations
         n_pipes = max(n_pumps, 2)
-        pipe_length_factor = 0.20 / n_pump_rooms
-        pipe_suction = 30.0 / n_pump_rooms
-        pipe_length_estimate = total_length * pipe_length_factor + pipe_suction
+        nearest_room_distances = [min(abs(s['chainage_m'] - room)
+                                      for room in room_chainages)
+                                  for s in self.stations]
+        pipe_length_estimate = np.mean(nearest_room_distances) * 1.3 + 30.0 / n_effective_rooms
         pipe_length_estimate = min(pipe_length_estimate, 300.0)
         Q_per_pipe_m3s = Q_required_m3s / n_pipes
         v_target_pipe = 2.5
@@ -214,17 +226,30 @@ class LazyRiverModel:
 
         # === STEP 2: Place jets (smart placement if critical zones exist) ===
         # Use smart placement: prioritize jets in low-velocity zones
-        active_jets = self.propulsion.get_active_jets()
-        if not active_jets or len(active_jets) != n_jets:
+        if jet_chainages:
+            self.propulsion.jets = []
+            for jet_id, chainage in enumerate(jet_chainages, start=1):
+                chainage = max(0.0, min(float(chainage), total_length))
+                closest = min(self.stations, key=lambda s: abs(s['chainage_m'] - chainage))
+                self.propulsion.add_jet(
+                    jet_id=jet_id, station_m=closest['chainage_m'], x=closest['x'], y=closest['y'],
+                    diameter_m=jet_diameter_m, flow_m3_h=Q_required_m3h / len(jet_chainages), angle_deg=30.0,
+                )
+        else:
             # Smart placement: 50% in critical zones, 50% evenly distributed
+            # Beach entries are intentionally calm, so jets are proposed only
+            # on current-channel stations in automatic mode.
+            eligible_stations = [s for s in self.stations if s.get('zone_type') == 'current']
+            eligible_velocities = [v for s, v in zip(self.stations, preliminary_velocities)
+                                   if s.get('zone_type') == 'current']
             self.propulsion.auto_place_jets_smart(
-                self.stations, n_jets=n_jets,
+                eligible_stations or self.stations, n_jets=n_jets,
                 flow_m3_h=Q_required_m3h / n_jets,
                 diameter_m=jet_diameter_m,
-                velocities=preliminary_velocities,
+                velocities=eligible_velocities or preliminary_velocities,
                 critical_ratio=0.85,
             )
-            active_jets = self.propulsion.get_active_jets()
+        active_jets = self.propulsion.get_active_jets()
         n_active_jets = len(active_jets) if active_jets else n_jets
 
         # === STEP 3: Individual jet pressure and flow ===
@@ -232,9 +257,6 @@ class LazyRiverModel:
         # Jets closer to the pump: higher pressure → more flow → higher V_exit
         # Jets farther from the pump: lower pressure → less flow → lower V_exit
         if n_active_jets > 0 and pipe_length_estimate > 0:
-            # Find pump manifold location (center of pump room)
-            manifold_chainage = total_length / 2
-
             # Calculate pipe friction to each jet
             pipe_area_jet = np.pi * (pipe_diameter_m / 2) ** 2
             nozzle_area_jet = np.pi * (jet_diameter_m / 2) ** 2
@@ -255,9 +277,10 @@ class LazyRiverModel:
 
             for j in active_jets:
                 # Distance from manifold to jet (along the circuit)
-                dist_to_jet = abs(j.station_m - manifold_chainage)
-                # Account for circular circuit
-                dist_to_jet = min(dist_to_jet, total_length - dist_to_jet)
+                dist_to_jet = min(
+                    min(abs(j.station_m - room), total_length - abs(j.station_m - room))
+                    for room in room_chainages
+                )
 
                 # Add pipe run from manifold to jet (with some routing factor)
                 pipe_to_jet = dist_to_jet * 1.3  # 30% routing factor
@@ -387,7 +410,7 @@ class LazyRiverModel:
         pipe_friction = pipe_friction_factor * (pipe_length_estimate / pipe_diameter_m) * (v_pipe ** 2) / (2 * 9.81)
         losses.append(LossComponent("Pipe friction (Darcy-Weisbach)", "friction",
                                      pipe_friction,
-                                     f"{n_pump_rooms}cuartos, {n_pipes}pipes x {pipe_diameter_m*1000:.0f}mm HDPE, L={pipe_length_estimate:.0f}m, V={v_pipe:.1f}m/s, f={pipe_friction_factor:.4f}", 0))
+                                     f"{n_effective_rooms} cuartos, {n_pipes} tuberías x {pipe_diameter_m*1000:.0f}mm HDPE, L={pipe_length_estimate:.0f}m, V={v_pipe:.1f}m/s, f={pipe_friction_factor:.4f}", 0))
 
         # 5d. Minor losses (valves, fittings, bends, strainers, check valves)
         # Using fitting K-factor database for accurate calculation
