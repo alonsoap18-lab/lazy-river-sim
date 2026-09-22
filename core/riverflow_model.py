@@ -9,7 +9,7 @@ intersection, electrical demand, and CFD result remain unverified.
 """
 
 from dataclasses import dataclass
-from math import ceil, inf, isfinite
+from math import ceil, inf, isfinite, sqrt
 from typing import Optional, Sequence
 
 
@@ -18,6 +18,7 @@ RIVERFLOW_RATED_GPM = 2440.0
 RIVERFLOW_RATED_M3_H = RIVERFLOW_RATED_GPM * US_GPM_TO_M3_H
 RIVERFLOW_MOTOR_HP = 10.0
 RIVERFLOW_CURVE_POINTS = ((4.0, 2440.0), (10.0, 1220.0))  # ft head, US gpm
+GRAVITY_M_S2 = 9.81
 
 
 def riverflow_flow_at_head_ft(head_ft: float) -> float:
@@ -53,6 +54,14 @@ class RiverflowPlan:
     current_velocity_min_m_s: float
     current_velocity_max_m_s: float
     filtration_flow_m3_h: float
+    manning_n_current: float
+    manning_n_calm: float
+    channel_friction_head_m: float
+    target_channel_friction_head_m: float
+    current_lap_min: float
+    calm_lap_min: float
+    max_froude: float
+    cumulative_friction_head_m: tuple[float, ...]
     required_active_modules: int
     active_motor_nameplate_hp: float
     total_motor_nameplate_hp: float
@@ -87,13 +96,14 @@ def compute_riverflow_plan(
     module_head_full_speed_ft: float = 4.0,
     speed_fraction: float = 1.0, transfer_fraction: float = 1.0,
     calm_zone_width_m: float = 15.0, filtration_turnover_h: float = 4.0,
+    manning_n_current: float = 0.015, manning_n_calm: float = 0.015,
     module_chainages_m: Optional[Sequence[float]] = None,
 ) -> RiverflowPlan:
     if len(stations) < 2:
         raise ValueError("El DXF debe producir al menos dos secciones de canal.")
     if any(not isfinite(value) or value <= 0 for value in (depth_m, target_lap_min,
-                                    filtration_turnover_h)):
-        raise ValueError("Profundidad, tiempo y recambio deben ser positivos y finitos.")
+                filtration_turnover_h, manning_n_current, manning_n_calm, calm_zone_width_m)):
+        raise ValueError("Profundidad, tiempo, recambio, Manning y ancho de zonas deben ser positivos y finitos.")
     module_flow_full_speed_m3_h = riverflow_flow_at_head_ft(module_head_full_speed_ft)
     if active_modules < 1 or standby_modules < 0:
         raise ValueError("Debe existir al menos una unidad activa.")
@@ -102,6 +112,8 @@ def compute_riverflow_plan(
 
     zones = tuple("calm" if float(s["width_m"]) >= calm_zone_width_m else "current"
                   for s in stations)
+    if any(not isfinite(float(s["width_m"])) or float(s["width_m"]) <= 0 for s in stations):
+        raise ValueError("Todas las secciones del DXF deben tener un ancho positivo y finito.")
     length_m = float(stations[-1]["chainage_m"])
     volume_m3 = 0.0
     calm_length_m = 0.0
@@ -119,6 +131,28 @@ def compute_riverflow_plan(
     equivalent_flow_m3_h = operating_flow_m3_h * transfer_fraction
     target_flow_m3_h = volume_m3 * 60 / target_lap_min
     estimated_lap_min = volume_m3 * 60 / equivalent_flow_m3_h if equivalent_flow_m3_h > 0 else inf
+    current_lap_min = 0.0
+    calm_lap_min = 0.0
+    channel_friction_head_m = 0.0
+    target_channel_friction_head_m = 0.0
+    cumulative_friction = [0.0]
+    for previous, current, zone in zip(stations[:-1], stations[1:], zones[:-1]):
+        ds = float(current["chainage_m"]) - float(previous["chainage_m"])
+        width = (float(previous["width_m"]) + float(current["width_m"])) / 2
+        area = width * depth_m
+        radius = area / (width + 2 * depth_m)
+        n = manning_n_calm if zone == "calm" else manning_n_current
+        # Manning friction slope Sf = (n Q / (A R^(2/3)))^2, Q in m³/s.
+        friction = ds * (n * equivalent_flow_m3_h / 3600 / (area * radius ** (2 / 3))) ** 2
+        target_friction = ds * (n * target_flow_m3_h / 3600 / (area * radius ** (2 / 3))) ** 2
+        channel_friction_head_m += friction
+        target_channel_friction_head_m += target_friction
+        cumulative_friction.append(channel_friction_head_m)
+        passage_min = area * ds * 60 / equivalent_flow_m3_h
+        if zone == "calm":
+            calm_lap_min += passage_min
+        else:
+            current_lap_min += passage_min
     station_velocities = tuple(equivalent_flow_m3_h / 3600 / (float(s["width_m"]) * depth_m)
                                if float(s["width_m"]) > 0 else 0.0 for s in stations)
     current_velocities = [velocity for velocity, zone in zip(station_velocities, zones)
@@ -151,6 +185,12 @@ def compute_riverflow_plan(
         current_velocity_min_m_s=min(current_velocities) if current_velocities else 0.0,
         current_velocity_max_m_s=max(current_velocities) if current_velocities else 0.0,
         filtration_flow_m3_h=volume_m3 / filtration_turnover_h,
+        manning_n_current=manning_n_current, manning_n_calm=manning_n_calm,
+        channel_friction_head_m=channel_friction_head_m,
+        target_channel_friction_head_m=target_channel_friction_head_m,
+        current_lap_min=current_lap_min, calm_lap_min=calm_lap_min,
+        max_froude=max(station_velocities) / sqrt(GRAVITY_M_S2 * depth_m),
+        cumulative_friction_head_m=tuple(cumulative_friction),
         required_active_modules=required_modules,
         active_motor_nameplate_hp=active_modules * RIVERFLOW_MOTOR_HP,
         total_motor_nameplate_hp=(active_modules + standby_modules) * RIVERFLOW_MOTOR_HP,

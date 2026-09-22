@@ -3,6 +3,7 @@
 from math import ceil, isclose
 
 from core.orchestrator import LazyRiverModel
+from core.centerline import orient_stations_clockwise, signed_centerline_area
 from core.riverflow_model import (RIVERFLOW_RATED_M3_H, US_GPM_TO_M3_H,
                                   compute_riverflow_plan, riverflow_flow_at_head_ft)
 
@@ -89,9 +90,39 @@ def test_geometry_and_calm_threshold_update_integrated_results():
     assert deep.calm_zone_length_m < shallow.calm_zone_length_m
 
 
+def test_clockwise_direction_and_manning_friction_are_auditable():
+    stations = geometry()
+    assert signed_centerline_area(stations) < 0
+    length = float(stations[-1]["chainage_m"])
+    ccw = [dict(stations[0]), *(dict(s) for s in reversed(stations[1:-1])),
+           dict(stations[-1])]
+    for i, station in enumerate(ccw):
+        station["chainage_m"] = (0.0 if i == 0 else length if i == len(ccw) - 1
+                                 else length - float(station["chainage_m"]))
+    assert signed_centerline_area(ccw) > 0
+    normalized = orient_stations_clockwise(ccw)
+    assert signed_centerline_area(normalized) < 0
+    assert all(a["chainage_m"] <= b["chainage_m"] for a, b in zip(normalized, normalized[1:]))
+    base = compute_riverflow_plan(normalized, depth_m=1.2, target_lap_min=40,
+                                  active_modules=19, manning_n_current=0.015,
+                                  manning_n_calm=0.015)
+    rough = compute_riverflow_plan(normalized, depth_m=1.2, target_lap_min=40,
+                                   active_modules=19, manning_n_current=0.030,
+                                   manning_n_calm=0.030)
+    assert isclose(base.volume_m3, compute_riverflow_plan(
+        stations, depth_m=1.2, target_lap_min=40, active_modules=19).volume_m3)
+    assert isclose(rough.channel_friction_head_m, 4 * base.channel_friction_head_m)
+    assert isclose(rough.target_channel_friction_head_m, 4 * base.target_channel_friction_head_m)
+    assert isclose(rough.estimated_lap_min, base.estimated_lap_min)
+    assert isclose(base.current_lap_min + base.calm_lap_min, base.estimated_lap_min)
+    assert len(base.cumulative_friction_head_m) == len(normalized)
+    assert isclose(base.cumulative_friction_head_m[-1], base.channel_friction_head_m)
+
+
 if __name__ == "__main__":
     test_riverflow_target_and_operating_flow_are_distinct()
     test_manual_changes_propagate_through_scenario()
     test_supplied_curve_changes_all_dependent_results()
     test_geometry_and_calm_threshold_update_integrated_results()
+    test_clockwise_direction_and_manning_friction_are_auditable()
     print("Riverflow planning checks passed")

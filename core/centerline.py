@@ -5,6 +5,31 @@ from typing import List, Tuple, Optional
 from scipy.signal import savgol_filter
 
 
+def signed_centerline_area(stations) -> float:
+    """CAD x/y signed area: negative means clockwise for a closed loop."""
+    return 0.5 * sum(float(a["x"]) * float(b["y"]) - float(b["x"]) * float(a["y"])
+                     for a, b in zip(stations, stations[1:]))
+
+
+def orient_stations_clockwise(stations) -> list[dict]:
+    """Keep the DXF origin but reverse chainage if the closed path is CCW."""
+    if len(stations) < 3:
+        raise ValueError("El recorrido DXF necesita al menos tres estaciones.")
+    if signed_centerline_area(stations) < 0:
+        return list(stations)
+    length = float(stations[-1]["chainage_m"])
+    ordered = [dict(stations[0]), *(dict(s) for s in reversed(stations[1:-1])),
+               dict(stations[-1])]
+    for index, station in enumerate(ordered):
+        station["station_id"] = index
+        station["chainage_m"] = (0.0 if index == 0 else length if index == len(ordered) - 1
+                                 else length - float(station["chainage_m"]))
+        for key in ("tangent_x", "tangent_y", "normal_x", "normal_y", "curvature_1_m"):
+            if key in station:
+                station[key] = -station[key]
+    return ordered
+
+
 class CenterlineBuilder:
     """Builds a smooth, properly-closed centerline between two walls."""
 

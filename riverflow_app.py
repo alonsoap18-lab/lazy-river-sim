@@ -9,6 +9,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from core.orchestrator import LazyRiverModel
+from core.centerline import signed_centerline_area
 from core.riverflow_model import (
     RIVERFLOW_MOTOR_HP,
     RIVERFLOW_RATED_GPM,
@@ -18,7 +19,7 @@ from core.riverflow_model import (
 )
 
 
-MODEL_VERSION = "riverflow-curve-anchors-2"
+MODEL_VERSION = "riverflow-clockwise-manning-3"
 ASSET_DIR = os.path.join(os.path.dirname(__file__), "assets")
 
 
@@ -50,6 +51,7 @@ def parse_chainages(value, length_m):
 
 def make_map(model, plan, show_installation=True):
     fig = go.Figure()
+    scale = float(model.geometry.scale_m_per_unit) or 1.0
     for wall, label, color in (
         (model.loader.outer_wall, "Muro exterior DXF", "#64748b"),
         (model.loader.inner_wall, "Muro interior DXF", "#94a3b8"),
@@ -88,18 +90,18 @@ def make_map(model, plan, show_installation=True):
         tx, ty = tx / norm, ty / norm
         nx, ny = -ty, tx
         width = float(station["width_m"])
-        px = station["x"] + nx * (width / 2 + 2)
-        py = station["y"] + ny * (width / 2 + 2)
-        sx = station["x"] - tx * 1.2 + nx * (width * 0.3)
-        sy = station["y"] - ty * 1.2 + ny * (width * 0.3)
-        ox = station["x"] + tx * 1.2 + nx * (width * 0.3)
-        oy = station["y"] + ty * 1.2 + ny * (width * 0.3)
+        px = station["x"] + nx * (width / 2 + 2) / scale
+        py = station["y"] + ny * (width / 2 + 2) / scale
+        sx = station["x"] - tx * 1.2 / scale + nx * width * 0.3 / scale
+        sy = station["y"] - ty * 1.2 / scale + ny * width * 0.3 / scale
+        ox = station["x"] + tx * 1.2 / scale + nx * width * 0.3 / scale
+        oy = station["y"] + ty * 1.2 / scale + ny * width * 0.3 / scale
         labels.append(f"RF-{number:02d} · {position:.0f} m")
         pump_x.append(px)
         pump_y.append(py)
         if show_installation:
             for side in (-0.6, 0.6):
-                x, y = sx + tx * side, sy + ty * side
+                x, y = sx + tx * side / scale, sy + ty * side / scale
                 suction_x.append(x)
                 suction_y.append(y)
                 pipe_x.extend([x, px, None])
@@ -108,8 +110,13 @@ def make_map(model, plan, show_installation=True):
             outlet_y.append(oy)
             pipe_x.extend([px, ox, None])
             pipe_y.extend([py, oy, None])
-            flow_x.extend([ox, ox + tx * 3, None])
-            flow_y.extend([oy, oy + ty * 3, None])
+            flow_x.extend([ox, ox + tx * 3 / scale, None])
+            flow_y.extend([oy, oy + ty * 3 / scale, None])
+            if number == 1 or number % 4 == 0:
+                fig.add_annotation(x=ox + tx * 3 / scale, y=oy + ty * 3 / scale,
+                                   ax=ox, ay=oy, xref="x", yref="y", axref="x", ayref="y",
+                                   text="", showarrow=True, arrowhead=3,
+                                   arrowcolor="#16a34a", arrowsize=1.2)
     if show_installation:
         fig.add_trace(go.Scatter(x=pipe_x, y=pipe_y, mode="lines", name="Tubería local (esquema)",
                                  line=dict(color="#94a3b8", width=1, dash="dot"),
@@ -157,6 +164,17 @@ def make_profile(model, plan):
                       yaxis2=dict(title="Velocidad equivalente (m/s)", overlaying="y",
                                   side="right", rangemode="tozero"),
                       legend=dict(orientation="h", y=1.12))
+    return fig
+
+
+def make_friction_profile(model, plan):
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=[s["chainage_m"] for s in model.stations],
+                             y=plan.cumulative_friction_head_m, mode="lines",
+                             name="Pérdida acumulada Manning", line=dict(color="#7c3aed", width=3)))
+    fig.update_layout(height=280, margin=dict(l=20, r=20, t=20, b=25),
+                      xaxis_title="Recorrido horario desde origen DXF (m)",
+                      yaxis_title="Pérdida acumulada de canal (m)")
     return fig
 
 
@@ -226,7 +244,7 @@ def make_csv(plan, nozzle_type):
 def main():
     st.markdown("<h1 style='color:#2563eb;text-align:center'>Selvatura NYA · Lazy River / Riverflow</h1>",
                 unsafe_allow_html=True)
-    st.caption("Fase 1 · geometría DXF y dimensionamiento conceptual de propulsión, filtración e infraestructura")
+    st.caption("Fase 1 · recorrido horario · geometría DXF y dimensionamiento conceptual de propulsión, filtración e infraestructura")
 
     st.sidebar.header("Diseño NYA desde DXF")
     uploaded = st.sidebar.file_uploader("Plano DXF (capa PAREDES)", type=["dxf"])
@@ -237,6 +255,13 @@ def main():
     depth_m = st.sidebar.number_input("Profundidad de agua (m)", 0.4, 3.0, 1.2, 0.05)
     calm_width_m = st.sidebar.number_input("Zona calma desde ancho (m)", 4.0, 40.0, 15.0, 0.5,
                                            help="Las partes anchas del DXF se tratan como entradas a playa.")
+    st.sidebar.subheader("Resistencia del canal")
+    manning_current = st.sidebar.slider("Manning n · canal de corriente", 0.010, 0.030,
+                                        0.015, 0.001, format="%.3f",
+                                        help="Coeficiente editable de rugosidad para tramos estrechos. Afecta la pérdida por fricción del canal; no se aplica directamente a la curva de cada bomba local.")
+    manning_calm = st.sidebar.slider("Manning n · entradas a playa", 0.010, 0.030,
+                                     0.015, 0.001, format="%.3f",
+                                     help="Rugosidad de las zonas anchas. Puede diferir por acabado superficial; requiere confirmar materiales y calibración.")
 
     try:
         model, issues = load_geometry(uploaded.getvalue() if uploaded else None,
@@ -246,6 +271,9 @@ def main():
         st.stop()
     for issue in issues:
         st.warning(str(issue))
+    if signed_centerline_area(model.stations) >= 0:
+        st.error("No se pudo confirmar el sentido horario del DXF.")
+        st.stop()
 
     st.sidebar.header("Unidades Riverflow")
     target_lap_min = st.sidebar.number_input("Objetivo de tiempo por vuelta (min)",
@@ -293,6 +321,7 @@ def main():
             module_head_full_speed_ft=local_head_ft,
             speed_fraction=speed_pct / 100, transfer_fraction=transfer_pct / 100,
             calm_zone_width_m=calm_width_m, filtration_turnover_h=turnover_h,
+            manning_n_current=manning_current, manning_n_calm=manning_calm,
             module_chainages_m=manual_positions)
     except ValueError as exc:
         st.error(str(exc))
@@ -319,8 +348,9 @@ def main():
     c4.metric("Circulación equivalente", f"{plan.equivalent_channel_flow_m3_h:,.0f} m³/h")
     c5.metric("Velocidad de recorrido", f"{plan.velocity_lap_m_s:.3f} m/s")
     if plan.estimated_lap_min <= plan.target_lap_min:
-        st.success(f"Bajo la transferencia supuesta, {active_modules} unidades alcanzan la meta. "
-                   f"Mínimo aritmético estimado: {plan.required_active_modules} activas.")
+        st.info(f"El escenario aritmético cumple la meta con {active_modules} unidades; "
+                f"mínimo estimado: {plan.required_active_modules} activas. "
+                "No confirma el desempeño real: TDH local y transferencia siguen sin calibrar.")
     else:
         st.warning(f"Bajo la transferencia supuesta, se necesitarían al menos "
                    f"{plan.required_active_modules} unidades activas para {target_lap_min:.1f} min.")
@@ -338,6 +368,8 @@ def main():
          "Comparativos y planos Riverflow"])
 
     with tab_map:
+        st.info("Circulación definida: sentido horario. El origen del recorrido es el punto inicial del DXF; "
+                "las posiciones editables en metros aumentan en ese sentido.")
         show_installation = st.checkbox("Mostrar montaje conceptual: bomba, tomas y descarga", value=True)
         st.plotly_chart(make_map(model, plan, show_installation), width="stretch")
         st.caption("Naranja: bomba local propuesta en una margen. Azul: dos tomas de succión. Verde: "
@@ -352,6 +384,24 @@ def main():
                   help="Distancia más larga, medida sobre el recorrido cerrado, desde una sección de corriente hasta la unidad activa más cercana. Cambia al mover unidades; no equivale a alcance hidráulico de la descarga.")
 
     with tab_hydraulic:
+        st.subheader("Fricción del canal · Manning")
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("n corriente / playa", f"{manning_current:.3f} / {manning_calm:.3f}")
+        m2.metric("Pérdida canal · escenario", f"{plan.channel_friction_head_m:.2f} m")
+        m3.metric("Pérdida canal · meta", f"{plan.target_channel_friction_head_m:.2f} m")
+        m4.metric("Froude equivalente máx.", f"{plan.max_froude:.2f}")
+        st.plotly_chart(make_friction_profile(model, plan), width="stretch")
+        st.caption("Se calcula la pendiente de fricción de Manning en cada tramo del DXF con "
+                   "ancho local, profundidad y circulación longitudinal equivalente. Es un diagnóstico "
+                   "de resistencia del canal; NO es la TDH de la bomba Riverflow ni una validación del "
+                   "punto de operación. Cambiar n actualiza estas pérdidas, pero no fuerza artificialmente "
+                   "otro tiempo de vuelta mientras falte calibrar cómo el impulso de los módulos se "
+                   "transmite a la corriente.")
+        q1, q2 = st.columns(2)
+        q1.metric("Tiempo en canal de corriente", f"{plan.current_lap_min:.1f} min")
+        q2.metric("Tiempo en entradas a playa", f"{plan.calm_lap_min:.1f} min")
+        st.caption("La suma coincide con la vuelta estimada; ambas partes se recalculan con el ancho DXF, "
+                   "la profundidad, las unidades activas y el porcentaje de transferencia supuesto.")
         curve_heads = [4.0 + i * 0.1 for i in range(61)]
         curve = go.Figure()
         curve.add_trace(go.Scatter(x=[riverflow_flow_at_head_ft(h) for h in curve_heads],
@@ -370,11 +420,11 @@ def main():
                    "El punto de operación real requiere cruzar la curva de la bomba con la curva del circuito local.")
         st.plotly_chart(make_profile(model, plan), width="stretch")
         h1, h2, h3 = st.columns(3)
-        h1.metric("V local en canal de corriente", f"{plan.current_velocity_min_m_s:.3f}–{plan.current_velocity_max_m_s:.3f} m/s")
-        h2.metric("V local en todo el recorrido", f"{plan.velocity_min_m_s:.3f}–{plan.velocity_max_m_s:.3f} m/s")
+        h1.metric("V equivalente en canal de corriente", f"{plan.current_velocity_min_m_s:.3f}–{plan.current_velocity_max_m_s:.3f} m/s")
+        h2.metric("V equivalente en todo el recorrido", f"{plan.velocity_min_m_s:.3f}–{plan.velocity_max_m_s:.3f} m/s")
         h3.metric("V equivalente Q/A medio", f"{plan.velocity_equivalent_m_s:.3f} m/s")
-        st.caption("Velocidad de recorrido = longitud / tiempo estimado. La V equivalente Q/A medio "
-                   "usa el área media y puede diferir de ella por los cambios de ancho del DXF.")
+        st.caption("Velocidad de recorrido = longitud / tiempo estimado. Las velocidades por sección "
+                   "son equivalentes Q/A, no mediciones ni un campo CFD; cambian con el ancho del DXF.")
         st.plotly_chart(make_count_chart(plan), width="stretch")
         st.markdown(
             f"**Cálculo enlazado:** volumen DXF {plan.volume_m3:,.1f} m³ ÷ "
@@ -383,6 +433,21 @@ def main():
             f"{active_modules} × {plan.module_flow_full_speed_m3_h:.1f} m³/h por unidad "
             f"a {local_head_ft:.1f} ft × {speed_pct}% × {transfer_pct}%."
         )
+        with st.expander("Trazabilidad de datos y límites del cálculo"):
+            st.dataframe([
+                {"Dato editable": "DXF, longitud y profundidad", "Afecta": "Volumen, áreas, velocidades, vuelta, fricción y filtración",
+                 "Estado": "Geometría derivada del plano; escala y profundidad por confirmar"},
+                {"Dato editable": "Manning de corriente y playa", "Afecta": "Pérdida por fricción del canal y gráfica acumulada",
+                 "Estado": "No modifica aún la vuelta; falta acoplamiento de impulso/calibración"},
+                {"Dato editable": "TDH local estimada", "Afecta": "Q por bomba, Q total, vuelta, velocidades y unidades requeridas",
+                 "Estado": "Curva H–Q interpolada entre dos anclas; no es un punto instalado"},
+                {"Dato editable": "Variador y transferencia", "Afecta": "Circulación equivalente, vuelta, velocidades y fricción",
+                 "Estado": "Aproximaciones; la transferencia no ha sido medida"},
+                {"Dato editable": "Ubicación y tipo de salida", "Afecta": "Plano, distancias y listado de equipos",
+                 "Estado": "Sin modelo de alcance, pérdidas de boquilla ni CFD"},
+                {"Dato editable": "Recambio de filtración", "Afecta": "Caudal de tratamiento separado",
+                 "Estado": "No se suma al caudal de propulsión"},
+            ], width="stretch", hide_index=True)
         st.warning("La TDH ingresada no está calculada para NYA. Caudal a velocidad parcial ≈ caudal "
                    "a plena velocidad × porcentaje del variador es una aproximación de escenario, "
                    "no un punto verificado de la curva. Potencia eléctrica y velocidad de salida "
