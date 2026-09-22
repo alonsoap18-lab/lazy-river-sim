@@ -496,9 +496,20 @@ def main():
                                    help="Mayor n = más pérdidas y mayor TDH requerido. Con caudal de bomba fijado, no cambia Q ni la velocidad hasta resolver una curva H-Q real.")
 
     st.sidebar.subheader("Bombas (CONFIGURAR AQUI)")
+    calculation_basis = st.sidebar.radio(
+        "Base del cálculo hidráulico",
+        ["Caudal configurado de bombas", "Tiempo objetivo de vuelta"],
+        help="Elige si el modelo calcula el tiempo resultante desde el caudal o el caudal requerido desde el tiempo deseado."
+    )
+    target_lap_time_min = None
+    if calculation_basis == "Tiempo objetivo de vuelta":
+        target_lap_time_min = st.sidebar.number_input(
+            "Tiempo objetivo por vuelta (min)", 5.0, 120.0, 20.0, 0.5,
+            help="El modelo ajusta el caudal requerido usando toda la geometría del DXF para cumplir este tiempo."
+        )
     n_pumps = st.sidebar.number_input("Numero de bombas", 1, 4, 4, 1)
     pump_flow = st.sidebar.number_input("Caudal por bomba (m3/h)", 100.0, 20000.0, 4400.0, 100.0,
-                                         help="Caudal que cada bomba entrega. Mas caudal = mas velocidad en el canal.")
+                                         help="Caudal que cada bomba entrega. En modo tiempo objetivo se usa para comparar la capacidad por bomba requerida.")
     pump_efficiency = st.sidebar.slider("Eficiencia bomba", 0.5, 0.9, 0.75, 0.05,
                                          help="Eficiencia de la bomba. Afecta la potencia requerida.")
     pump_head = st.sidebar.number_input("TDH disponible (m)", 0.5, 30.0, 5.0, 0.5,
@@ -516,8 +527,12 @@ def main():
                                         help="Diametro de la boquilla del jet. Afecta la velocidad de salida.")
 
     st.sidebar.subheader("VFD (Variador de Frecuencia)")
-    use_vfd = st.sidebar.checkbox("Usar VFD", value=False,
-                                   help="Variable Frequency Drive: reduce RPM de la bomba para ahorrar energia.")
+    use_vfd = False
+    if calculation_basis == "Caudal configurado de bombas":
+        use_vfd = st.sidebar.checkbox("Usar VFD", value=False,
+                                       help="Variable Frequency Drive: reduce RPM de la bomba para ahorrar energia.")
+    else:
+        st.sidebar.caption("En modo tiempo objetivo, el caudal requerido controla el cálculo; el VFD deberá ajustarse después con la curva H-Q.")
     vfd_speed_pct = 100.0
     if use_vfd:
         vfd_speed_pct = st.sidebar.slider("Velocidad VFD (%)", 50, 100, 100, 5,
@@ -600,7 +615,8 @@ def main():
         total_pump_flow_effective = total_pump_flow
 
     results = model.compute_hydraulics(depth_m=depth_m, manning_n=manning_n,
-                                        pump_flow_m3_h=total_pump_flow_effective,
+                                        pump_flow_m3_h=(total_pump_flow_effective if target_lap_time_min is None else None),
+                                        target_lap_time_min=target_lap_time_min,
                                         n_jets=n_jets, jet_diameter_m=jet_diam,
                                         pump_efficiency=pump_efficiency,
                                         n_pumps=n_pumps,
@@ -608,6 +624,10 @@ def main():
                                         n_pump_rooms=n_pump_rooms,
                                         water_temp_c=water_temp,
                                         pump_head_available_m=pump_head)
+
+    # All secondary views and scenarios use the actual flow selected above.
+    if target_lap_time_min:
+        total_pump_flow_effective = results.total_flow_m3_h
 
     # Occupancy has no calibrated hydraulic-loss model or pump H-Q curve yet.
     # Keep all hydraulic outputs continuous with Q instead of changing only one
@@ -630,7 +650,8 @@ def main():
 
     # Main results row
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Q bombas efectivo", f"{results.total_flow_m3_h:.0f} m3/h",
+    q_label = "Q requerido para tiempo objetivo" if target_lap_time_min else "Q bombas efectivo"
+    c1.metric(q_label, f"{results.total_flow_m3_h:.0f} m3/h",
               help="Caudal usado por el modelo. Si hay VFD, incorpora la reducción de velocidad.")
     c2.metric("V equivalente (Q/A promedio)", f"{results.velocity_equivalent_m_s:.3f} m/s",
               help="Q real del modelo dividido entre el área con ancho promedio del DXF.")
@@ -649,6 +670,14 @@ def main():
         st.info(
             f"Margen nominal de TDH: {results.pump_head_margin_m:.2f} m. "
             "Comprobación preliminar: falta validar el punto de operación con la curva H-Q del fabricante."
+        )
+
+    if target_lap_time_min:
+        required_per_pump = results.total_flow_m3_h / n_pumps
+        capacity_status = "OK" if pump_flow >= required_per_pump else "REVISAR"
+        st.info(
+            f"Objetivo: {target_lap_time_min:.1f} min/vuelta → caudal requerido {results.total_flow_m3_h:.0f} m³/h "
+            f"({required_per_pump:.0f} m³/h por bomba; capacidad configurada: {pump_flow:.0f} m³/h, {capacity_status})."
         )
 
     # COMMERCIAL HP - highlighted
@@ -764,7 +793,7 @@ def main():
     st.markdown(f"""
     **Cadena de calculo:**
     ```
-    Bombas: {n_pumps} x {pump_flow:.0f} m3/h = {total_pump_flow:.0f} m3/h
+    {f"Objetivo de vuelta: {target_lap_time_min:.1f} min → Q requerido = {results.total_flow_m3_h:.0f} m3/h" if target_lap_time_min else f"Bombas: {n_pumps} x {pump_flow:.0f} m3/h = {total_pump_flow:.0f} m3/h"}
     {f"VFD: {vfd_speed_pct:.0f}% → Q efectivo = {total_pump_flow_effective:.0f} m3/h" if use_vfd and vfd_speed_pct < 100 else ""}
     Area canal: {g.channel_width_avg_m:.1f} m x {depth_m:.2f} m = {channel_area:.1f} m2
     Velocidad equivalente Q/A promedio: {results.total_flow_m3_h:.0f} / 3600 / {channel_area:.1f} = {results.velocity_equivalent_m_s:.3f} m/s
@@ -1444,7 +1473,10 @@ def main():
 
     with tab_sim:
         st.subheader("Simulacion Visual - Recorrido Completo")
-        st.markdown("**Simulacion continua** del agua y la persona recorriendo los 536 metros del circuito.")
+        st.markdown(
+            f"**Simulación continua con la configuración actual** sobre {model.geometry.channel_length_m:.0f} m. "
+            f"Cada cambio manual recarga velocidades, posiciones de jets y tiempo de vuelta."
+        )
 
         if not (results and results.stations and model.geometry.centerline_coords):
             st.warning("No hay datos hidraulicos para simular.")
@@ -1594,9 +1626,9 @@ def main():
                 fig.add_trace(go.Scatter(
                     x=[cl_x[i], cl_x[i+1]], y=[cl_y[i], cl_y[i+1]],
                     mode='lines', line=dict(color=color, width=8),
-                    showlegend=(i == 0), name='Cumplimiento ASTM',
+                    showlegend=(i == 0), name='Pantalla hidráulica preliminar',
                     hovertemplate=f"V: {v:.3f} m/s<br>"
-                                  f"{'OK (ASTM)' if 0.3<=v<=0.6 else 'REVISAR' if 0.2<=v<=0.8 else 'CRITICO'}<extra></extra>",
+                                  f"{'Rango preliminar' if 0.3<=v<=0.6 else 'Revisar' if 0.2<=v<=0.8 else 'Crítico'}<extra></extra>",
                     opacity=0.6))
 
             # Velocity vectors
@@ -1717,8 +1749,9 @@ def main():
             # Info panel
             st.markdown("---")
             c1, c2, c3, c4, c5 = st.columns(5)
-            c1.metric("Velocidad promedio", f"{v_avg:.3f} m/s ({v_avg*3.6:.1f} km/h)")
-            c2.metric("Tiempo de vuelta", f"{lap_time/60:.1f} min")
+            c1.metric("V local promedio", f"{v_avg:.3f} m/s ({v_avg*3.6:.1f} km/h)")
+            time_delta = (f"Objetivo: {target_lap_time_min:.1f} min" if target_lap_time_min else None)
+            c2.metric("Tiempo de vuelta", f"{lap_time/60:.1f} min", delta=time_delta)
             c3.metric("Velocidad minima", f"{v_min:.3f} m/s")
             c4.metric("Velocidad maxima", f"{v_max:.3f} m/s")
 
@@ -1892,6 +1925,7 @@ def main():
                 for sid in model.scenarios.get_all_ids():
                     model.run_scenario(sid, depth_m=depth_m, manning_n=manning_n,
                                        pump_flow_m3_h=total_pump_flow_effective, n_jets=n_jets,
+                                       target_lap_time_min=target_lap_time_min,
                                        jet_diameter_m=jet_diam,
                                        pump_efficiency=pump_efficiency,
                                        n_pumps=n_pumps,

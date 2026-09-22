@@ -117,6 +117,7 @@ class LazyRiverModel:
 
     def compute_hydraulics(self, depth_m: float = 1.20, manning_n: float = 0.015,
                             target_velocity: float = None,
+                            target_lap_time_min: float = None,
                             pump_flow_m3_h: float = None,
                             n_jets: int = 8, jet_diameter_m: float = 0.075,
                             pump_efficiency: float = 0.70,
@@ -141,7 +142,20 @@ class LazyRiverModel:
         # This is the fundamental relationship: pump flow drives velocity
         channel_area = self.geometry.channel_width_avg_m * depth_m
 
-        if pump_flow_m3_h and pump_flow_m3_h > 0:
+        if target_lap_time_min and target_lap_time_min > 0:
+            # Q is selected to meet the requested full-lap transit time.
+            # With continuity, dt = A(s) ds / Q, so integrating the actual
+            # DXF-derived section area is more accurate than L / (Q/A_avg).
+            volume_per_lap_m3 = 0.0
+            for i in range(1, len(self.stations)):
+                ds = self.stations[i]['chainage_m'] - self.stations[i - 1]['chainage_m']
+                area_0 = self.stations[i - 1]['width_m'] * depth_m
+                area_1 = self.stations[i]['width_m'] * depth_m
+                volume_per_lap_m3 += max(0.0, ds) * (area_0 + area_1) / 2
+            target_seconds = target_lap_time_min * 60.0
+            Q_m3s = volume_per_lap_m3 / target_seconds if target_seconds > 0 else 0.0
+            velocity = Q_m3s / channel_area if channel_area > 0 else 0.3
+        elif pump_flow_m3_h and pump_flow_m3_h > 0:
             # Velocity is DRIVEN by pump flow
             Q_m3s = pump_flow_m3_h / 3600.0
             velocity = Q_m3s / channel_area if channel_area > 0 else 0.3
@@ -283,9 +297,12 @@ class LazyRiverModel:
             Q_jets_total_m3s = sum(j.flow_m3_s for j in active_jets)
             Q_jets_total_m3h = Q_jets_total_m3s * 3600
 
-            # Cap jet flow at pump flow (jets cannot deliver more than pumps provide)
-            if Q_jets_total_m3s > Q_required_m3s * 1.05:  # 5% tolerance
-                # Scale down all jets proportionally
+            # Enforce continuity with the selected pump/design flow.  Individual
+            # jet losses distribute pressure, but must not silently alter the
+            # total Q used by velocity, lap-time, TDH and power calculations.
+            # A manufacturer H-Q curve is still required to validate whether a
+            # real pump can sustain this operating point.
+            if Q_jets_total_m3s > 0:
                 scale_factor = Q_required_m3s / Q_jets_total_m3s
                 for j in active_jets:
                     j.flow_m3_s *= scale_factor
@@ -294,9 +311,7 @@ class LazyRiverModel:
                 Q_jets_total_m3s = sum(j.flow_m3_s for j in active_jets)
                 Q_jets_total_m3h = Q_jets_total_m3s * 3600
 
-            # Update the required flow to match what jets actually deliver
-            Q_required_m3s = Q_jets_total_m3s
-            Q_required_m3h = Q_jets_total_m3h
+            # Q_required remains the input/design flow by continuity.
 
         elif n_active_jets > 0:
             # Fallback: uniform flow (no pipe model)

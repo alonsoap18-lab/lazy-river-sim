@@ -80,7 +80,18 @@ def test_manual_width_isolated_from_the_cached_base_geometry():
     assert base.geometry.channel_width_avg_m == original_width
 
 
+def test_target_lap_time_drives_flow_and_returns_the_requested_time():
+    base = base_model()
+    _, short_lap = calculate(base, target_lap_time_min=15.0, pump_flow_m3_h=None)
+    _, long_lap = calculate(base, target_lap_time_min=30.0, pump_flow_m3_h=None)
+    assert abs(short_lap.lap_time_min - 15.0) < 0.02
+    assert abs(long_lap.lap_time_min - 30.0) < 0.02
+    assert short_lap.total_flow_m3_h > long_lap.total_flow_m3_h
+    assert short_lap.velocity_equivalent_m_s > long_lap.velocity_equivalent_m_s
+
+
 if __name__ == "__main__":
     test_controls_propagate_to_their_respective_outputs()
     test_manual_width_isolated_from_the_cached_base_geometry()
+    test_target_lap_time_drives_flow_and_returns_the_requested_time()
     print("Manual-control regression checks passed")
