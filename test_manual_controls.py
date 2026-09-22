@@ -91,8 +91,23 @@ def test_target_lap_time_drives_flow_and_returns_the_requested_time():
     assert abs(short_lap.velocity_lap_m_s - base.geometry.channel_length_m / (short_lap.lap_time_min * 60.0)) < 1e-12
 
 
+def test_wide_dxf_sections_are_editable_calm_zones_and_volume_is_positive():
+    base = base_model()
+    model, result = calculate(base, calm_zone_width_m=15.0)
+    zones = [station.zone_type for station in result.stations]
+    assert "current" in zones and "calm" in zones
+    assert result.calm_zone_length_m > 0
+    assert result.current_zone_length_m > 0
+    assert result.water_volume_m3 > 0
+    alerts = model.safety.evaluate(result.stations)
+    minimum_alert = next(alert for alert in alerts if alert.parameter == "Velocidad minima")
+    current_min = min(station.velocity_m_s for station in result.stations if station.zone_type == "current")
+    assert minimum_alert.value == current_min
+
+
 if __name__ == "__main__":
     test_controls_propagate_to_their_respective_outputs()
     test_manual_width_isolated_from_the_cached_base_geometry()
     test_target_lap_time_drives_flow_and_returns_the_requested_time()
+    test_wide_dxf_sections_are_editable_calm_zones_and_volume_is_positive()
     print("Manual-control regression checks passed")

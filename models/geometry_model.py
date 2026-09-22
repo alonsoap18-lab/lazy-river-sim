@@ -26,6 +26,7 @@ class Station:
     energy_m: float = 0.0
     froude_number: float = 0.0
     reynolds_number: float = 0.0
+    zone_type: str = "current"  # current channel or intentionally calm beach/entry
 
 
 @dataclass
@@ -152,6 +153,9 @@ class HydraulicResults:
     theoretical_kw: float = 0.0
     pump_head_available_m: float = 0.0
     pump_head_margin_m: float = 0.0
+    water_volume_m3: float = 0.0
+    current_zone_length_m: float = 0.0
+    calm_zone_length_m: float = 0.0
 
 
 @dataclass

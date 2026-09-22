@@ -33,7 +33,7 @@ st.markdown("""<style>
 </style>""", unsafe_allow_html=True)
 
 
-MODEL_CACHE_VERSION = "unified-reporting-velocity-1"
+MODEL_CACHE_VERSION = "phase1-zoning-treatment-1"
 
 
 @st.cache_resource(show_spinner="Cargando geometria DXF...")
@@ -485,7 +485,7 @@ def main():
     )
     if width_override:
         width_m = st.sidebar.number_input(
-            "Ancho promedio manual (m)", 1.0, 15.0, 5.0, 0.5,
+            "Ancho promedio manual (m)", 1.0, 30.0, 11.0, 0.5,
             help="⚠️ Modo manual: este valor IGNORA la geometría del DXF."
         )
         st.sidebar.warning("⚠️ Usando ancho MANUAL, no el del DXF")
@@ -494,6 +494,13 @@ def main():
     depth_m = st.sidebar.slider("Profundidad (m)", 0.5, 2.0, 1.2, 0.05)
     manning_n = st.sidebar.slider("Manning n (rugosidad)", 0.010, 0.030, 0.015, 0.001, format="%.3f",
                                    help="Mayor n = más pérdidas y mayor TDH requerido. Con caudal de bomba fijado, no cambia Q ni la velocidad hasta resolver una curva H-Q real.")
+
+    st.sidebar.subheader("Zonificación 2D desde DXF")
+    calm_zone_width_m = st.sidebar.number_input(
+        "Ancho desde el que es zona calma (m)", 6.0, 35.0, 15.0, 0.5,
+        help="Los tramos más anchos se clasifican como entrada a playa/zona calma. "
+             "No se les exige la velocidad mínima del canal de corriente."
+    )
 
     st.sidebar.subheader("Bombas (CONFIGURAR AQUI)")
     calculation_basis = st.sidebar.radio(
@@ -563,10 +570,12 @@ def main():
                                     help="Afecta densidad, viscosidad y presión de vapor. "
                                          "Típico Costa Rica: 25-30°C.")
 
-    st.sidebar.subheader("Balance Hidrico")
-    Q_filtration = st.sidebar.number_input("Caudal filtracion (m3/h)", 0.0, 5000.0, 0.0, 50.0,
-                                            help="Caudal del sistema de tratamiento/filtración. "
-                                                 "Es un balance informativo separado: no se suma al cálculo hidráulico de propulsión.")
+    st.sidebar.subheader("Tratamiento de Agua")
+    filtration_turnover_h = st.sidebar.number_input(
+        "Tiempo de recirculación de filtración (h)", 2.0, 12.0, 4.0, 0.5,
+        help="Q de filtración = volumen calculado desde DXF / tiempo de recirculación. "
+             "Circuito separado de la propulsión."
+    )
 
     st.sidebar.subheader("Ocupacion")
     n_people = st.sidebar.slider("Personas en canal", 0, 1000, 0, 10,
@@ -623,7 +632,8 @@ def main():
                                         safety_factor=safety_factor,
                                         n_pump_rooms=n_pump_rooms,
                                         water_temp_c=water_temp,
-                                        pump_head_available_m=pump_head)
+                                        pump_head_available_m=pump_head,
+                                        calm_zone_width_m=calm_zone_width_m)
 
     # All secondary views and scenarios use the actual flow selected above.
     if target_lap_time_min:
@@ -632,6 +642,9 @@ def main():
     # Occupancy has no calibrated hydraulic-loss model or pump H-Q curve yet.
     # Keep all hydraulic outputs continuous with Q instead of changing only one
     # average-speed field.  It remains available as a user-simulation input.
+
+    # Separate circuits: filtration treats the full calculated water volume.
+    Q_filtration = results.water_volume_m3 / filtration_turnover_h if filtration_turnover_h > 0 else 0
 
     # Separate flows
     g = model.geometry
@@ -717,6 +730,12 @@ def main():
     c15.metric("Potencia W", f"{results.total_power_watts:.0f} W",
               help="Potencia total en Watts")
     c16.metric("Personas", f"{n_people}")
+
+    z1, z2, z3 = st.columns(3)
+    z1.metric("Volumen teórico DXF", f"{results.water_volume_m3:,.0f} m³")
+    z2.metric("Canal de corriente", f"{results.current_zone_length_m:.0f} m")
+    z3.metric("Entradas a playa / calma", f"{results.calm_zone_length_m:.0f} m",
+              help=f"Ancho ≥ {calm_zone_width_m:.1f} m según la zonificación editable.")
 
     if n_people > 0:
         st.info(
@@ -834,16 +853,15 @@ def main():
                 f"ahorra {(1 - vfd_factor**3)*100:.0f}% de energia. "
                 f"Ahorro estimado: ${annual_savings_usd:,.0f}/año ({annual_savings_kwh:,.0f} kWh).")
 
-    # Balance Hidrico
-    if Q_filtration > 0:
-        st.markdown("---")
-        st.markdown("#### BALANCE HIDRICO")
-        cb1, cb2, cb3, cb4 = st.columns(4)
-        cb1.metric("Q propulsion (jets)", f"{Q_propulsion:.0f} m3/h")
-        cb2.metric("Q filtracion", f"{Q_filtration:.0f} m3/h")
-        cb3.metric("Q registrado (propulsión + filtración)", f"{Q_total_system:.0f} m3/h")
-        cb4.metric("Diferencia vs. bombeo de propulsión", f"{results.total_flow_m3_h - Q_propulsion:.0f} m3/h",
-                   help="Solo compara la rama de propulsión. La filtración no se incorpora al TDH sin definir su circuito y bomba.")
+    st.markdown("---")
+    st.markdown("#### TRATAMIENTO DE AGUA — CIRCUITO SEPARADO")
+    cb1, cb2, cb3, cb4 = st.columns(4)
+    cb1.metric("Volumen hidráulico", f"{results.water_volume_m3:,.0f} m³")
+    cb2.metric("Recirculación teórica", f"{filtration_turnover_h:.1f} h")
+    cb3.metric("Q filtración requerido", f"{Q_filtration:,.0f} m³/h")
+    cb4.metric("Q propulsión (jets)", f"{Q_propulsion:,.0f} m³/h")
+    st.caption("La filtración se calcula por volumen/tiempo de recirculación. No se suma al TDH de propulsión "
+               "hasta definir bomba, filtros, tuberías y pérdidas propias del sistema de tratamiento.")
 
     # Status
     summary = model.safety.summary(alerts) if alerts else {'overall': 'NORMAL'}

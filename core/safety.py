@@ -59,6 +59,8 @@ class SafetyEngine:
             return alerts
 
         velocities = [s.velocity_m_s for s in stations]
+        current_velocities = [s.velocity_m_s for s in stations
+                              if getattr(s, 'zone_type', 'current') == 'current']
         v_max = max(velocities)
         v_min = min(velocities)
         froude_numbers = [s.froude_number for s in stations if hasattr(s, 'froude_number')]
@@ -74,7 +76,8 @@ class SafetyEngine:
             if 'velocidad' in param.lower() and 'max' in param.lower():
                 value = v_max
             elif 'velocidad' in param.lower() and 'min' in param.lower():
-                value = v_min
+                # Slow water is expected at intentionally calm beach entries.
+                value = min(current_velocities) if current_velocities else v_min
             elif 'profundidad' in param.lower():
                 value = stations[0].depth_m if stations else 0
             elif 'froude' in param.lower():

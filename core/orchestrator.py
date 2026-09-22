@@ -125,7 +125,8 @@ class LazyRiverModel:
                             safety_factor: float = 1.15,
                             n_pump_rooms: int = 1,
                             water_temp_c: float = 25.0,
-                            pump_head_available_m: float = None) -> HydraulicResults:
+                            pump_head_available_m: float = None,
+                            calm_zone_width_m: float = None) -> HydraulicResults:
         if not self.stations:
             self.results = HydraulicResults()
             return self.results
@@ -176,6 +177,12 @@ class LazyRiverModel:
         Q_required_m3h = Q_required_m3s * 3600
 
         total_length = self.stations[-1]['chainage_m'] if self.stations else 1.0
+
+        # Wide DXF sections are treated as intentional beach/entry calm zones.
+        # The threshold is a transparent, editable Phase-1 assumption.
+        for station in self.stations:
+            station['zone_type'] = ('calm' if calm_zone_width_m is not None
+                                    and station['width_m'] >= calm_zone_width_m else 'current')
 
         # === STEP 1.5: Pre-calculate pipe parameters for jet model ===
         # These are needed for individual jet pressure calculations
@@ -350,6 +357,7 @@ class LazyRiverModel:
             v_local = max(v_local, 0.05)
 
             hs = self.hydraulics.compute_at_station(s, v_local)
+            hs.zone_type = s.get('zone_type', 'current')
             self.hydraulic_stations.append(hs)
 
         # === STEP 5: Compute DYNAMIC SYSTEM TDH ===
@@ -489,6 +497,17 @@ class LazyRiverModel:
         velocity_lap = (self.geometry.channel_length_m / (lap_time * 60)
                         if lap_time > 0 else 0.0)
 
+        water_volume_m3 = 0.0
+        current_zone_length_m = 0.0
+        calm_zone_length_m = 0.0
+        for i in range(1, len(self.stations)):
+            ds = max(0.0, self.stations[i]['chainage_m'] - self.stations[i - 1]['chainage_m'])
+            water_volume_m3 += ds * (self.stations[i - 1]['width_m'] + self.stations[i]['width_m']) * depth_m / 2
+            if self.stations[i - 1].get('zone_type', 'current') == 'calm':
+                calm_zone_length_m += ds
+            else:
+                current_zone_length_m += ds
+
         alerts = self.safety.evaluate(self.hydraulic_stations)
         warnings = [f"{a.parameter}: {a.value:.2f} {a.unit} ({a.status})" for a in alerts]
         if pump_head_margin_m is not None and pump_head_margin_m < 0:
@@ -526,6 +545,9 @@ class LazyRiverModel:
             theoretical_kw=theoretical_kw,
             pump_head_available_m=pump_head_available_m or 0.0,
             pump_head_margin_m=pump_head_margin_m if pump_head_margin_m is not None else 0.0,
+            water_volume_m3=water_volume_m3,
+            current_zone_length_m=current_zone_length_m,
+            calm_zone_length_m=calm_zone_length_m,
         )
 
         return self.results
