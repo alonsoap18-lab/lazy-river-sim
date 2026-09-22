@@ -13,10 +13,11 @@ from core.riverflow_model import (
     RIVERFLOW_RATED_GPM,
     RIVERFLOW_RATED_M3_H,
     compute_riverflow_plan,
+    riverflow_flow_at_head_ft,
 )
 
 
-MODEL_VERSION = "riverflow-distributed-planning-1"
+MODEL_VERSION = "riverflow-curve-anchors-2"
 
 
 @st.cache_resource(show_spinner="Leyendo recorrido DXF...")
@@ -170,10 +171,11 @@ def main():
     active_modules = st.sidebar.number_input("Unidades activas", 1, 60, 19, 1)
     standby_modules = st.sidebar.number_input("Unidades de reserva", 0, 10, 1, 1,
                                               help="No aportan caudal mientras están apagadas.")
-    module_flow_m3_h = st.sidebar.number_input(
-        "Caudal por unidad al 100% (m³/h)", 50.0, 1500.0,
-        float(round(RIVERFLOW_RATED_M3_H, 1)), 1.0,
-        help="Valor publicado: 2,440 US GPM ≈ 554 m³/h. Ajustar al punto real de la curva H–Q cuando Riverflow lo confirme.")
+    local_head_ft = st.sidebar.number_input(
+        "TDH local estimada por unidad a plena velocidad (ft)", 4.0, 10.0, 4.0, 0.5,
+        help="Escenario de carga en el circuito local de una bomba, NO la TDH de una red central. "
+             "Se interpola entre 2,440 US GPM a 4 ft y 1,220 US GPM a 10 ft de la curva recibida. "
+             "Debe confirmarse con Riverflow para NYA.")
     speed_pct = st.sidebar.slider("Velocidad del variador (%)", 50, 100, 100, 1,
                                   help="Q proporcional a RPM es una aproximación; la curva H–Q real determina el caudal.")
     transfer_pct = st.sidebar.slider(
@@ -206,7 +208,7 @@ def main():
         plan = compute_riverflow_plan(
             model.stations, depth_m=depth_m, target_lap_min=target_lap_min,
             active_modules=active_modules, standby_modules=standby_modules,
-            module_flow_full_speed_m3_h=module_flow_m3_h,
+            module_head_full_speed_ft=local_head_ft,
             speed_fraction=speed_pct / 100, transfer_fraction=transfer_pct / 100,
             calm_zone_width_m=calm_width_m, filtration_turnover_h=turnover_h,
             module_chainages_m=manual_positions)
@@ -222,9 +224,10 @@ def main():
             st.warning("Unidades manuales en zonas calmas: " + ", ".join(map(str, calm_positions)) +
                        ". Compruebe que no alteren las entradas a playa.")
 
-    st.info("El caudal anunciado de cada Riverflow se recircula localmente. La transferencia longitudinal "
-            "es una hipótesis editable: la vuelta calculada es una estimación de escenario hasta disponer "
-            "de curva H–Q, trazado de succión/descarga y validación del fabricante o CFD.")
+    st.info("El caudal por Riverflow proviene de dos puntos rotulados de la curva H–Q recibida. "
+            "La TDH local y la transferencia longitudinal son hipótesis editables: el caudal de las "
+            "bombas no equivale automáticamente a circulación neta del río. La vuelta es una "
+            "estimación hasta verificar las pérdidas locales y la circulación con Riverflow o CFD.")
 
     st.subheader("Resultado del escenario")
     c1, c2, c3, c4, c5 = st.columns(5)
@@ -240,11 +243,13 @@ def main():
         st.warning(f"Bajo la transferencia supuesta, se necesitarían al menos "
                    f"{plan.required_active_modules} unidades activas para {target_lap_min:.1f} min.")
 
-    g1, g2, g3, g4 = st.columns(4)
+    g1, g2, g3, g4, g5 = st.columns(5)
     g1.metric("Volumen desde DXF", f"{plan.volume_m3:,.0f} m³")
     g2.metric("Q requerido para meta", f"{plan.target_equivalent_flow_m3_h:,.0f} m³/h")
     g3.metric("Motores activos · placa", f"{plan.active_motor_nameplate_hp:.0f} HP")
     g4.metric("Filtración separada", f"{plan.filtration_flow_m3_h:,.0f} m³/h")
+    g5.metric("Q por unidad según curva", f"{plan.module_flow_full_speed_m3_h:,.0f} m³/h",
+              help=f"Interpolado a {local_head_ft:.1f} ft ({local_head_ft * 0.3048:.2f} m) de TDH local estimada, a plena velocidad.")
 
     tab_map, tab_hydraulic, tab_equipment = st.tabs(
         ["Plano 2D y unidades", "Cálculo y escenarios", "Equipos e infraestructura"])
@@ -261,6 +266,22 @@ def main():
                   help="Distancia más larga, medida sobre el recorrido cerrado, desde una sección de corriente hasta la unidad activa más cercana. Cambia al mover unidades; no equivale a alcance hidráulico de la descarga.")
 
     with tab_hydraulic:
+        curve_heads = [4.0 + i * 0.1 for i in range(61)]
+        curve = go.Figure()
+        curve.add_trace(go.Scatter(x=[riverflow_flow_at_head_ft(h) for h in curve_heads],
+                                   y=curve_heads, mode="lines", name="Interpolación entre anclas",
+                                   line=dict(color="#2563eb", width=3)))
+        curve.add_trace(go.Scatter(x=[plan.module_flow_full_speed_m3_h], y=[local_head_ft],
+                                   mode="markers", name="Escenario seleccionado",
+                                   marker=dict(size=12, color="#ea580c")))
+        curve.update_layout(height=300, margin=dict(l=20, r=20, t=20, b=25),
+                            xaxis_title="Caudal por unidad a plena velocidad (m³/h)",
+                            yaxis_title="TDH local estimada (ft)")
+        st.plotly_chart(curve, width="stretch")
+        st.caption("Curva recibida: 2,440 US GPM a 4 ft y 1,220 US GPM a 10 ft. "
+                   "La línea entre esos puntos es interpolación de planificación, no una curva "
+                   "certificada digitalizada. Fuera de 4–10 ft no se extrapola. "
+                   "El punto de operación real requiere cruzar la curva de la bomba con la curva del circuito local.")
         st.plotly_chart(make_profile(model, plan), width="stretch")
         h1, h2, h3 = st.columns(3)
         h1.metric("V local en canal de corriente", f"{plan.current_velocity_min_m_s:.3f}–{plan.current_velocity_max_m_s:.3f} m/s")
@@ -273,16 +294,19 @@ def main():
             f"**Cálculo enlazado:** volumen DXF {plan.volume_m3:,.1f} m³ ÷ "
             f"caudal longitudinal equivalente {plan.equivalent_channel_flow_m3_h:,.1f} m³/h "
             f"= {plan.estimated_lap_min:.1f} min/vuelta. Este caudal equivale a "
-            f"{active_modules} × {module_flow_m3_h:.1f} × {speed_pct}% × {transfer_pct}%."
+            f"{active_modules} × {plan.module_flow_full_speed_m3_h:.1f} m³/h por unidad "
+            f"a {local_head_ft:.1f} ft × {speed_pct}% × {transfer_pct}%."
         )
-        st.warning("TDH real, potencia eléctrica y velocidad de salida de boquillas: pendientes de la "
-                   "curva H–Q, dimensiones de tomas/salidas y trazado de cada circuito local. "
-                   "La potencia de placa de 10 HP por unidad no es su consumo instantáneo.")
+        st.warning("La TDH ingresada no está calculada para NYA. Caudal a velocidad parcial ≈ caudal "
+                   "a plena velocidad × porcentaje del variador es una aproximación de escenario, "
+                   "no un punto verificado de la curva. Potencia eléctrica y velocidad de salida "
+                   "requieren dimensiones de tomas/salidas, trazado local y validación del fabricante. "
+                   "La placa de 10 HP no es el consumo instantáneo.")
 
     with tab_equipment:
         st.subheader("Unidades de propulsión")
         rows = [{"Unidad": f"RF-{i:02d}", "Recorrido (m)": round(position, 1),
-                 "Q nominal a velocidad elegida (m³/h)": round(module_flow_m3_h * speed_pct / 100, 1),
+                 "Q estimado a velocidad elegida (m³/h)": round(plan.module_flow_full_speed_m3_h * speed_pct / 100, 1),
                  "Motor de placa (HP)": RIVERFLOW_MOTOR_HP, "Salida": nozzle_type}
                 for i, position in enumerate(plan.module_chainages_m, 1)]
         st.dataframe(rows, width="stretch", hide_index=True)
@@ -303,9 +327,13 @@ def main():
         )
         st.caption("Las unidades de reserva no aportan caudal al escenario. Su ubicación de almacenamiento "
                    "o instalación queda pendiente del plan de redundancia.")
+        st.caption("El plano 'Espada Amenity' recibido de Riverflow muestra como referencia una bomba vertical, "
+                   "dos tomas de succión, descarga y requisitos de elevación/drenaje. Es otro proyecto: "
+                   "sus cotas y disposición no se transfieren a NYA sin un plano específico aprobado.")
 
-    st.markdown("**Datos publicados del fabricante:** "
-                f"{RIVERFLOW_RATED_GPM:,.0f} US GPM ≈ {RIVERFLOW_RATED_M3_H:.1f} m³/h y "
+    st.markdown("**Datos de la curva facilitada por Riverflow:** "
+                f"{RIVERFLOW_RATED_GPM:,.0f} US GPM ≈ {RIVERFLOW_RATED_M3_H:.1f} m³/h a 4 ft; "
+                "1,220 US GPM ≈ 277.1 m³/h a 10 ft; "
                 f"motor de {RIVERFLOW_MOTOR_HP:.0f} HP por unidad. "
                 "[Sistema Riverflow](https://riverflowpumps.com/technical/what-the-system-includes/) · "
                 "[Curva publicada](https://riverflowpumps.com/technical/riverflow-pump-curve/) · "

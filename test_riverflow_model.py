@@ -3,7 +3,8 @@
 from math import ceil, isclose
 
 from core.orchestrator import LazyRiverModel
-from core.riverflow_model import RIVERFLOW_RATED_M3_H, compute_riverflow_plan
+from core.riverflow_model import (RIVERFLOW_RATED_M3_H, US_GPM_TO_M3_H,
+                                  compute_riverflow_plan, riverflow_flow_at_head_ft)
 
 
 def geometry():
@@ -18,6 +19,7 @@ def test_riverflow_target_and_operating_flow_are_distinct():
     plan = compute_riverflow_plan(stations, depth_m=1.2, target_lap_min=40,
                                   active_modules=19, standby_modules=1)
     assert isclose(plan.installed_operating_flow_m3_h, 19 * RIVERFLOW_RATED_M3_H)
+    assert plan.module_head_full_speed_ft == 4.0
     assert isclose(plan.target_equivalent_flow_m3_h, plan.volume_m3 * 60 / 40)
     assert isclose(plan.estimated_lap_min,
                    plan.volume_m3 * 60 / plan.equivalent_channel_flow_m3_h)
@@ -52,6 +54,29 @@ def test_manual_changes_propagate_through_scenario():
     assert slower.max_current_distance_to_module_m > normal.max_current_distance_to_module_m
 
 
+def test_supplied_curve_changes_all_dependent_results():
+    stations = geometry()
+    assert isclose(riverflow_flow_at_head_ft(4), 2440 * US_GPM_TO_M3_H)
+    assert isclose(riverflow_flow_at_head_ft(7), 1830 * US_GPM_TO_M3_H)
+    assert isclose(riverflow_flow_at_head_ft(10), 1220 * US_GPM_TO_M3_H)
+    at_four = compute_riverflow_plan(stations, depth_m=1.2, target_lap_min=40,
+                                     active_modules=19, module_head_full_speed_ft=4)
+    at_ten = compute_riverflow_plan(stations, depth_m=1.2, target_lap_min=40,
+                                    active_modules=19, module_head_full_speed_ft=10)
+    assert isclose(at_ten.installed_operating_flow_m3_h, at_four.installed_operating_flow_m3_h / 2)
+    assert isclose(at_ten.estimated_lap_min, at_four.estimated_lap_min * 2)
+    assert isclose(at_ten.velocity_equivalent_m_s, at_four.velocity_equivalent_m_s / 2)
+    assert at_ten.required_active_modules == 2 * at_four.required_active_modules - 1
+    assert at_ten.filtration_flow_m3_h == at_four.filtration_flow_m3_h
+    for invalid in (3.9, 10.1):
+        try:
+            riverflow_flow_at_head_ft(invalid)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("No se debe extrapolar fuera de las anclas")
+
+
 def test_geometry_and_calm_threshold_update_integrated_results():
     stations = geometry()
     shallow = compute_riverflow_plan(stations, depth_m=1.0, target_lap_min=40,
@@ -67,5 +92,6 @@ def test_geometry_and_calm_threshold_update_integrated_results():
 if __name__ == "__main__":
     test_riverflow_target_and_operating_flow_are_distinct()
     test_manual_changes_propagate_through_scenario()
+    test_supplied_curve_changes_all_dependent_results()
     test_geometry_and_calm_threshold_update_integrated_results()
     print("Riverflow planning checks passed")

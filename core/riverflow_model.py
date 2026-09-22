@@ -3,12 +3,13 @@
 Riverflow modules recirculate water locally. Their combined pump discharge is
 therefore not automatically the through-flow of every channel cross section.
 The longitudinal transfer fraction is an explicit, uncalibrated scenario input.
-No manufacturer H-Q intersection, TDH, electrical demand, or CFD result is
-inferred from the advertised 2,440 US gpm / 10 HP module specifications.
+The supplied manufacturer curve provides two labelled H-Q anchors. A local
+design-head scenario is interpolated between them; the installed system-curve
+intersection, electrical demand, and CFD result remain unverified.
 """
 
 from dataclasses import dataclass
-from math import ceil, inf
+from math import ceil, inf, isfinite
 from typing import Optional, Sequence
 
 
@@ -16,6 +17,16 @@ US_GPM_TO_M3_H = 0.22712470704
 RIVERFLOW_RATED_GPM = 2440.0
 RIVERFLOW_RATED_M3_H = RIVERFLOW_RATED_GPM * US_GPM_TO_M3_H
 RIVERFLOW_MOTOR_HP = 10.0
+RIVERFLOW_CURVE_POINTS = ((4.0, 2440.0), (10.0, 1220.0))  # ft head, US gpm
+
+
+def riverflow_flow_at_head_ft(head_ft: float) -> float:
+    """Interpolate only between the two labelled points on Riverflow's curve."""
+    low, high = RIVERFLOW_CURVE_POINTS
+    if not isfinite(head_ft) or not low[0] <= head_ft <= high[0]:
+        raise ValueError("La TDH local debe estar entre 4 y 10 ft; fuera de la curva anclada no se extrapola.")
+    gpm = low[1] + (head_ft - low[0]) * (high[1] - low[1]) / (high[0] - low[0])
+    return gpm * US_GPM_TO_M3_H
 
 
 @dataclass(frozen=True)
@@ -28,6 +39,7 @@ class RiverflowPlan:
     target_equivalent_flow_m3_h: float
     active_modules: int
     standby_modules: int
+    module_head_full_speed_ft: float
     module_flow_full_speed_m3_h: float
     speed_fraction: float
     transfer_fraction: float
@@ -72,16 +84,17 @@ def _module_positions(stations: Sequence[dict], count: int,
 def compute_riverflow_plan(
     stations: Sequence[dict], *, depth_m: float, target_lap_min: float,
     active_modules: int, standby_modules: int = 0,
-    module_flow_full_speed_m3_h: float = RIVERFLOW_RATED_M3_H,
+    module_head_full_speed_ft: float = 4.0,
     speed_fraction: float = 1.0, transfer_fraction: float = 1.0,
     calm_zone_width_m: float = 15.0, filtration_turnover_h: float = 4.0,
     module_chainages_m: Optional[Sequence[float]] = None,
 ) -> RiverflowPlan:
     if len(stations) < 2:
         raise ValueError("El DXF debe producir al menos dos secciones de canal.")
-    if any(value <= 0 for value in (depth_m, target_lap_min, module_flow_full_speed_m3_h,
+    if any(not isfinite(value) or value <= 0 for value in (depth_m, target_lap_min,
                                     filtration_turnover_h)):
-        raise ValueError("Profundidad, tiempo, caudal y recambio deben ser positivos.")
+        raise ValueError("Profundidad, tiempo y recambio deben ser positivos y finitos.")
+    module_flow_full_speed_m3_h = riverflow_flow_at_head_ft(module_head_full_speed_ft)
     if active_modules < 1 or standby_modules < 0:
         raise ValueError("Debe existir al menos una unidad activa.")
     if not 0 < speed_fraction <= 1 or not 0 < transfer_fraction <= 1:
@@ -126,6 +139,7 @@ def compute_riverflow_plan(
         current_zone_length_m=length_m - calm_length_m, calm_zone_length_m=calm_length_m,
         target_lap_min=target_lap_min, target_equivalent_flow_m3_h=target_flow_m3_h,
         active_modules=active_modules, standby_modules=standby_modules,
+        module_head_full_speed_ft=module_head_full_speed_ft,
         module_flow_full_speed_m3_h=module_flow_full_speed_m3_h,
         speed_fraction=speed_fraction, transfer_fraction=transfer_fraction,
         installed_operating_flow_m3_h=operating_flow_m3_h,
