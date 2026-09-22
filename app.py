@@ -8,6 +8,7 @@ import plotly.graph_objects as go
 import sys
 import os
 import math
+from copy import deepcopy
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from core.orchestrator import LazyRiverModel
@@ -32,13 +33,17 @@ st.markdown("""<style>
 </style>""", unsafe_allow_html=True)
 
 
-MODEL_CACHE_VERSION = "audit-fixes-1"
+MODEL_CACHE_VERSION = "manual-control-integrity-1"
 
 
 @st.cache_resource(show_spinner="Cargando geometria DXF...")
 def load_model(dxf_path, length_m, cache_version):
     """Load model from DXF. Cached for performance - only reloads when path/length change.
-    Width always comes from DXF geometry (isotropic scaling)."""
+    Width always comes from DXF geometry (isotropic scaling).
+
+    This object is a read-only base model.  Each Streamlit rerun gets a deep
+    copy below so manual scenario controls never alter the shared cache.
+    """
     m = LazyRiverModel()
     m.load_dxf(path=dxf_path)
     m.build_centerline(resolution_m=0.5, target_length_m=length_m)
@@ -488,7 +493,7 @@ def main():
     st.sidebar.subheader("Canal")
     depth_m = st.sidebar.slider("Profundidad (m)", 0.5, 2.0, 1.2, 0.05)
     manning_n = st.sidebar.slider("Manning n (rugosidad)", 0.010, 0.030, 0.015, 0.001, format="%.3f",
-                                   help="Afecta la resistencia al flujo. Mayor n = mas rugosidad = mas perdidas = menos velocidad.")
+                                   help="Mayor n = más pérdidas y mayor TDH requerido. Con caudal de bomba fijado, no cambia Q ni la velocidad hasta resolver una curva H-Q real.")
 
     st.sidebar.subheader("Bombas (CONFIGURAR AQUI)")
     n_pumps = st.sidebar.number_input("Numero de bombas", 1, 4, 4, 1)
@@ -546,11 +551,11 @@ def main():
     st.sidebar.subheader("Balance Hidrico")
     Q_filtration = st.sidebar.number_input("Caudal filtracion (m3/h)", 0.0, 5000.0, 0.0, 50.0,
                                             help="Caudal del sistema de tratamiento/filtración. "
-                                                 "Separado del caudal de propulsion.")
+                                                 "Es un balance informativo separado: no se suma al cálculo hidráulico de propulsión.")
 
     st.sidebar.subheader("Ocupacion")
     n_people = st.sidebar.slider("Personas en canal", 0, 1000, 0, 10,
-                                  help="Las personas generan resistencia y ocupan espacio en el canal.")
+                                  help="Se registra para simulación de usuarios. No modifica Q, TDH ni velocidades hidráulicas hasta calibrar resistencia humana y curva H-Q.")
 
     # Load model
     if uploaded:
@@ -559,7 +564,8 @@ def main():
             tmp.write(uploaded.read())
             dxf_path = tmp.name
 
-    model = load_model(dxf_path, length_m, MODEL_CACHE_VERSION)
+    # Never mutate the cached DXF model: controls must be isolated by rerun/user.
+    model = deepcopy(load_model(dxf_path, length_m, MODEL_CACHE_VERSION))
 
     # Apply manual width override if active
     if width_override:
@@ -603,19 +609,9 @@ def main():
                                         water_temp_c=water_temp,
                                         pump_head_available_m=pump_head)
 
-    # Apply people effect
-    if n_people > 0 and results:
-        v_original = results.velocity_avg_m_s
-        v_adjusted = model.people.velocity_with_people(
-            v_original, n_people,
-            model.geometry.channel_width_avg_m, depth_m,
-            model.geometry.channel_length_m,
-            pump_type="constant_flow")  # Pump maintains constant Q
-
-        # Scale lap time by velocity ratio (preserve integrated profile)
-        if v_original > 0:
-            results.lap_time_min = results.lap_time_min * (v_original / v_adjusted)
-        results.velocity_avg_m_s = v_adjusted
+    # Occupancy has no calibrated hydraulic-loss model or pump H-Q curve yet.
+    # Keep all hydraulic outputs continuous with Q instead of changing only one
+    # average-speed field.  It remains available as a user-simulation input.
 
     # Separate flows
     g = model.geometry
@@ -634,8 +630,8 @@ def main():
 
     # Main results row
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Q bombas", f"{total_pump_flow:.0f} m3/h",
-              help="Caudal total de las bombas configuradas")
+    c1.metric("Q bombas efectivo", f"{results.total_flow_m3_h:.0f} m3/h",
+              help="Caudal usado por el modelo. Si hay VFD, incorpora la reducción de velocidad.")
     c2.metric("V equivalente (Q/A promedio)", f"{results.velocity_equivalent_m_s:.3f} m/s",
               help="Q real del modelo dividido entre el área con ancho promedio del DXF.")
     c3.metric("V local (mín–máx)", f"{results.velocity_min_m_s:.3f}–{results.velocity_max_m_s:.3f} m/s",
@@ -691,6 +687,12 @@ def main():
               help="Potencia total en Watts")
     c16.metric("Personas", f"{n_people}")
 
+    if n_people > 0:
+        st.info(
+            "La ocupación está registrada para la simulación de usuarios. Aún no se aplica a Q, TDH ni "
+            "velocidades: hacerlo sin datos de arrastre calibrados y una curva H-Q produciría resultados inconsistentes."
+        )
+
     # Gauge charts for key metrics
     st.markdown("#### INDICADORES CLAVE")
     froude_numbers = [s.froude_number for s in results.stations if hasattr(s, 'froude_number')]
@@ -703,8 +705,8 @@ def main():
     with gauge_col1:
         fig_v = go.Figure(go.Indicator(
             mode="gauge+number+delta",
-            value=results.velocity_avg_m_s,
-            title={'text': "Velocidad (m/s)"},
+            value=results.velocity_equivalent_m_s,
+            title={'text': "V equivalente Q/A promedio (m/s)"},
             delta={'reference': 0.5, 'increasing': {'color': "red"}, 'decreasing': {'color': "green"}},
             gauge={
                 'axis': {'range': [0, 1.0], 'tickwidth': 1},
@@ -781,8 +783,8 @@ def main():
         st.markdown("#### ANALISIS VFD (Variador de Frecuencia)")
         # Affinity laws: P ∝ N³
         vfd_factor = vfd_speed_pct / 100.0
-        power_without_vfd = results.power_motor_kw * safety_factor  # At full speed
-        power_with_vfd = power_without_vfd * (vfd_factor ** 3)  # P ∝ N³
+        power_with_vfd = results.power_motor_kw * safety_factor
+        power_without_vfd = power_with_vfd / (vfd_factor ** 3)  # P ∝ N³
         annual_savings_kwh = (power_without_vfd - power_with_vfd) * 10 * 300  # 10h/day, 300 days
         electricity_cost = 0.12  # USD/kWh
         annual_savings_usd = annual_savings_kwh * electricity_cost
@@ -807,9 +809,9 @@ def main():
         cb1, cb2, cb3, cb4 = st.columns(4)
         cb1.metric("Q propulsion (jets)", f"{Q_propulsion:.0f} m3/h")
         cb2.metric("Q filtracion", f"{Q_filtration:.0f} m3/h")
-        cb3.metric("Q total sistema", f"{Q_total_system:.0f} m3/h")
-        cb4.metric("Q rebose/retorno", f"{max(0, total_pump_flow_effective - Q_total_system):.0f} m3/h",
-                   help="Caudal que retorna al sistema (si las bombas entregan mas de lo necesario)")
+        cb3.metric("Q registrado (propulsión + filtración)", f"{Q_total_system:.0f} m3/h")
+        cb4.metric("Diferencia vs. bombeo de propulsión", f"{results.total_flow_m3_h - Q_propulsion:.0f} m3/h",
+                   help="Solo compara la rama de propulsión. La filtración no se incorpora al TDH sin definir su circuito y bomba.")
 
     # Status
     summary = model.safety.summary(alerts) if alerts else {'overall': 'NORMAL'}
@@ -1187,17 +1189,17 @@ def main():
                   help="Caudal total que los jets inyectan al canal.")
         c3.metric("Q filtracion", f"{Q_filtration:.0f} m3/h",
                   help="Caudal del sistema de tratamiento/filtracion.")
-        c4.metric("Q total sistema", f"{Q_total_system:.0f} m3/h",
-                  help="Q propulsion + Q filtracion.")
+        c4.metric("Q registrado", f"{Q_total_system:.0f} m3/h",
+                  help="Suma informativa de propulsión y filtración; no representa una sola curva hidráulica.")
 
         explain("Caudal - Importante",
-                "NO confundir los caudales. El caudal del canal (A x V) es diferente al caudal de propulsion (jets). "
-                "El sistema de bombeo debe proporcionar Q_propulsion + Q_filtracion.",
-                f"Q canal = {g.channel_width_avg_m:.1f} x {depth_m:.2f} x {results.velocity_avg_m_s:.3f} x 3600 = {Q_canal:.0f} m3/h\n"
+                "La propulsión se calcula en este modelo. La filtración es un registro separado hasta definir "
+                "su bomba, tubería y pérdidas.",
+                f"Q canal equivalente = {g.channel_width_avg_m:.1f} x {depth_m:.2f} x {results.velocity_equivalent_m_s:.3f} x 3600 = {Q_canal:.0f} m3/h\n"
                 f"Q propulsion = {n_jets} jets x {total_pump_flow_effective/n_jets:.1f} m3/h = {Q_propulsion:.0f} m3/h\n"
                 f"Q filtracion = {Q_filtration:.0f} m3/h\n"
-                f"Q total sistema = {Q_total_system:.0f} m3/h\n"
-                "Son conceptos diferentes. El canal transporta agua; los jets la impulsan.")
+                f"Q registrado = {Q_total_system:.0f} m3/h\n"
+                "La filtración no se suma al TDH de propulsión en esta versión.")
 
         # NPSH verification with temperature-dependent vapor pressure
         st.subheader("Verificacion NPSH")
@@ -1889,12 +1891,14 @@ def main():
             with st.spinner("Calculando escenarios..."):
                 for sid in model.scenarios.get_all_ids():
                     model.run_scenario(sid, depth_m=depth_m, manning_n=manning_n,
-                                       pump_flow_m3_h=total_pump_flow, n_jets=n_jets,
+                                       pump_flow_m3_h=total_pump_flow_effective, n_jets=n_jets,
                                        jet_diameter_m=jet_diam,
                                        pump_efficiency=pump_efficiency,
                                        n_pumps=n_pumps,
                                        safety_factor=safety_factor,
-                                       n_pump_rooms=n_pump_rooms)
+                                       n_pump_rooms=n_pump_rooms,
+                                       water_temp_c=water_temp,
+                                       pump_head_available_m=pump_head)
 
             comparison = model.scenarios.compare_results()
             if comparison:

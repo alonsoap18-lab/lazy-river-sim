@@ -177,7 +177,7 @@ class LazyRiverModel:
         pipe_area = np.pi * (pipe_diameter_m / 2) ** 2
         v_pipe = Q_per_pipe_m3s / pipe_area if pipe_area > 0 else 0
         pipe_roughness = 0.0000015
-        pipe_Re = v_pipe * pipe_diameter_m / 1.004e-6 if pipe_diameter_m > 0 else 0
+        pipe_Re = v_pipe * pipe_diameter_m / self.hydraulics.nu if pipe_diameter_m > 0 else 0
         pipe_friction_factor = self.hydraulics.friction_factor_colebrook(pipe_Re, pipe_roughness, pipe_diameter_m)
         pipe_friction_factor = max(pipe_friction_factor, 0.010)
         jet_efficiency = 0.65  # Nozzle discharge coefficient
@@ -519,24 +519,21 @@ class LazyRiverModel:
         n_people = scenario.people_count
         result = self.compute_hydraulics(**kwargs)
 
+        user_velocity_estimated = result.velocity_avg_m_s
         if n_people > 0:
-            v_reduced = self.people.velocity_reduction(
+            user_velocity_estimated = self.people.velocity_reduction(
                 result.velocity_avg_m_s, n_people,
                 self.geometry.channel_width_avg_m,
                 result.stations[0].depth_m if result.stations else 1.2,
                 self.geometry.channel_length_m,
             )
-            # Scale lap time by velocity ratio (preserve integrated profile)
-            v_original = result.velocity_avg_m_s
-            if v_original > 0:
-                result.lap_time_min = result.lap_time_min * (v_original / v_reduced)
-            result.velocity_avg_m_s = v_reduced
 
         result_dict = {
             'scenario_id': scenario_id,
             'name': scenario.name,
             'people_count': n_people,
             'velocity_avg': result.velocity_avg_m_s,
+            'user_velocity_estimated': user_velocity_estimated,
             'lap_time': result.lap_time_min,
             'total_flow': result.total_flow_m3_h,
             'tdh': result.tdh_m,
