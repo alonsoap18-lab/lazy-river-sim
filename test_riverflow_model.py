@@ -51,7 +51,8 @@ def test_manual_changes_propagate_through_scenario():
     assert slower.installed_operating_flow_m3_h == 20 * RIVERFLOW_RATED_M3_H * 0.8
     assert isclose(slower.equivalent_channel_flow_m3_h,
                    scenario_channel_flow_m3_h(slower.channel_resistance_s2_m5,
-                       slower.module_flow_full_speed_m3_h, 20, 0.8, 0.01))
+                       slower.module_flow_full_speed_m3_h, 20, 0.8, 0.01,
+                       slower.placement_effectiveness))
     assert slower.estimated_lap_min > normal.estimated_lap_min
     assert slower.velocity_lap_m_s < normal.velocity_lap_m_s
     assert slower.required_active_modules > normal.required_active_modules

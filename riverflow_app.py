@@ -12,6 +12,7 @@ import streamlit as st
 
 from core.orchestrator import LazyRiverModel
 from core.centerline import signed_centerline_area
+from core.riverflow_2d import compute_field_2d
 from core.riverflow_model import (
     RIVERFLOW_DIGITIZED_POINTS,
     RIVERFLOW_MOTOR_HP,
@@ -24,7 +25,7 @@ from core.riverflow_model import (
 )
 
 
-MODEL_VERSION = "riverflow-coupled-manning-heatmap-6"
+MODEL_VERSION = "riverflow-conservative-2d-7"
 ASSET_DIR = os.path.join(os.path.dirname(__file__), "assets")
 
 
@@ -54,8 +55,35 @@ def parse_chainages(value, length_m):
     return positions
 
 
-def add_velocity_areas(fig, model, plan):
-    """Color DXF-derived cross-section strips; uniform across width, not CFD."""
+def add_velocity_areas(fig, model, plan, field=None):
+    """Color either the 2D conservative scenario or legacy Q/A strips."""
+    if field is not None:
+        vmin, vmax = float(np.min(field.speed_m_s)), float(np.max(field.speed_m_s))
+        bands = 12
+        xs, ys, hover = [[] for _ in range(bands)], [[] for _ in range(bands)], [[] for _ in range(bands)]
+        for i in range(len(field.chainages_m) - 1):
+            for j in range(len(field.lateral_fraction) - 1):
+                velocity = float(np.mean(field.speed_m_s[i:i+2, j:j+2]))
+                band = min(bands - 1, int((velocity - vmin) / (vmax - vmin or 1) * bands))
+                corners = ((i,j),(i+1,j),(i+1,j+1),(i,j+1),(i,j))
+                xs[band].extend([float(field.x[a,b]) for a,b in corners] + [None])
+                ys[band].extend([float(field.y[a,b]) for a,b in corners] + [None])
+                label = (f"{field.chainages_m[i]:.0f} m · margen {field.lateral_fraction[j]:.0%}–"
+                         f"{field.lateral_fraction[j+1]:.0%} · {velocity:.3f} m/s (escenario 2D)")
+                hover[band].extend([label] * 5 + [None])
+        for band in range(bands):
+            color = sample_colorscale("RdYlBu_r", (band + 0.5) / bands)[0]
+            fig.add_trace(go.Scatter(x=xs[band], y=ys[band], text=hover[band], mode="lines",
+                                     fill="toself", fillcolor=color,
+                                     line=dict(color=color, width=0.2),
+                                     name="Velocidad 2D · escenario" if band == 0 else None,
+                                     showlegend=band == 0, hovertemplate="%{text}<extra></extra>"))
+        fig.add_trace(go.Scatter(x=[float(field.x[0,0])], y=[float(field.y[0,0])],
+                                 mode="markers", marker=dict(size=0.1, color=[vmin],
+                                 cmin=vmin, cmax=max(vmax,vmin+1e-6), colorscale="RdYlBu_r",
+                                 showscale=True, colorbar=dict(title="m/s",len=0.7)),
+                                 showlegend=False, hoverinfo="skip"))
+        return
     stations = model.stations
     scale = float(model.geometry.scale_m_per_unit) or 1.0
     vmin, vmax = min(plan.station_velocities_m_s), max(plan.station_velocities_m_s)
@@ -95,10 +123,10 @@ def add_velocity_areas(fig, model, plan):
         showlegend=False, hoverinfo="skip"))
 
 
-def make_map(model, plan, show_installation=True, show_velocity_heatmap=True):
+def make_map(model, plan, show_installation=True, show_velocity_heatmap=True, field=None):
     fig = go.Figure()
     if show_velocity_heatmap:
-        add_velocity_areas(fig, model, plan)
+        add_velocity_areas(fig, model, plan, field)
     scale = float(model.geometry.scale_m_per_unit) or 1.0
     for wall, label, color in (
         (model.loader.outer_wall, "Muro exterior DXF", "#64748b"),
@@ -127,6 +155,7 @@ def make_map(model, plan, show_installation=True, show_velocity_heatmap=True):
     pump_x, pump_y, suction_x, suction_y, outlet_x, outlet_y = [], [], [], [], [], []
     pipe_x, pipe_y, flow_x, flow_y, labels = [], [], [], [], []
     for number, position in enumerate(plan.module_chainages_m, 1):
+        angle = np.deg2rad(plan.module_angles_deg[number - 1])
         index = min(range(len(model.stations)),
                     key=lambda i: abs(model.stations[i]["chainage_m"] - position))
         station = model.stations[index]
@@ -137,6 +166,7 @@ def make_map(model, plan, show_installation=True, show_velocity_heatmap=True):
         norm = (tx ** 2 + ty ** 2) ** 0.5 or 1.0
         tx, ty = tx / norm, ty / norm
         nx, ny = -ty, tx
+        dx, dy = tx * np.cos(angle) + nx * np.sin(angle), ty * np.cos(angle) + ny * np.sin(angle)
         width = float(station["width_m"])
         px = station["x"] + nx * (width / 2 + 2) / scale
         py = station["y"] + ny * (width / 2 + 2) / scale
@@ -144,7 +174,7 @@ def make_map(model, plan, show_installation=True, show_velocity_heatmap=True):
         sy = station["y"] - ty * 1.2 / scale + ny * width * 0.3 / scale
         ox = station["x"] + tx * 1.2 / scale + nx * width * 0.3 / scale
         oy = station["y"] + ty * 1.2 / scale + ny * width * 0.3 / scale
-        labels.append(f"RF-{number:02d} · {position:.0f} m")
+        labels.append(f"RF-{number:02d} · {position:.0f} m · {plan.module_angles_deg[number-1]:+.0f}°")
         pump_x.append(px)
         pump_y.append(py)
         if show_installation:
@@ -158,10 +188,10 @@ def make_map(model, plan, show_installation=True, show_velocity_heatmap=True):
             outlet_y.append(oy)
             pipe_x.extend([px, ox, None])
             pipe_y.extend([py, oy, None])
-            flow_x.extend([ox, ox + tx * 3 / scale, None])
-            flow_y.extend([oy, oy + ty * 3 / scale, None])
+            flow_x.extend([ox, ox + dx * 3 / scale, None])
+            flow_y.extend([oy, oy + dy * 3 / scale, None])
             if number == 1 or number % 4 == 0:
-                fig.add_annotation(x=ox + tx * 3 / scale, y=oy + ty * 3 / scale,
+                fig.add_annotation(x=ox + dx * 3 / scale, y=oy + dy * 3 / scale,
                                    ax=ox, ay=oy, xref="x", yref="y", axref="x", ayref="y",
                                    text="", showarrow=True, arrowhead=3,
                                    arrowcolor="#16a34a", arrowsize=1.2)
@@ -260,7 +290,7 @@ def make_count_chart(plan):
     times = [plan.volume_m3 * 60 / scenario_channel_flow_m3_h(
         plan.channel_resistance_s2_m5, plan.module_flow_full_speed_m3_h,
         count, plan.speed_fraction,
-        plan.transfer_fraction) for count in counts]
+        plan.transfer_fraction, plan.placement_effectiveness) for count in counts]
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=counts, y=times, mode="lines", name="Vuelta estimada",
                              line=dict(color="#2563eb", width=3)))
@@ -290,18 +320,26 @@ def simulated_positions(stations, depth_m, time_phases):
             np.interp(phases, fractions, [s["y"] for s in stations]))
 
 
-def make_fast_simulation(model, plan, playback_multiplier):
-    """Animate one conceptual Q/A lap over the same longitudinal heatmap."""
+def simulated_field_positions(field, time_phases):
+    phases = np.mod(np.asarray(time_phases, dtype=float), 1.0)
+    travel_fraction = field.center_lane_time_min / field.center_lane_time_min[-1]
+    return (np.interp(phases, travel_fraction, field.center_lane_x),
+            np.interp(phases, travel_fraction, field.center_lane_y))
+
+
+def make_fast_simulation(model, plan, playback_multiplier, field=None):
+    """Animate a conceptual center streamline on the same 2D scenario field."""
     frame_count = 72
     rider_count = 8
-    frame_ms = max(30, round(plan.estimated_lap_min * 60_000 /
+    lap_min = field.lane_lap_min[1] if field is not None else plan.estimated_lap_min
+    frame_ms = max(30, round(lap_min * 60_000 /
                              (playback_multiplier * frame_count)))
     initial_phases = np.arange(rider_count) / rider_count
-    x0, y0 = simulated_positions(model.stations, 1.0, initial_phases)
-    # The normalized cumulative volume does not depend on the uniform depth;
-    # use the scenario depth-independent fraction directly through depth=1.
+    position_fn = (lambda phases: simulated_field_positions(field, phases)) if field is not None else (
+        lambda phases: simulated_positions(model.stations, 1.0, phases))
+    x0, y0 = position_fn(initial_phases)
     fig = go.Figure()
-    add_velocity_areas(fig, model, plan)
+    add_velocity_areas(fig, model, plan, field)
     fig.add_trace(go.Scatter(x=[s["x"] for s in model.stations],
                              y=[s["y"] for s in model.stations], mode="lines",
                              name="Centro del canal · horario",
@@ -312,7 +350,7 @@ def make_fast_simulation(model, plan, playback_multiplier):
     frames = []
     for frame in range(frame_count):
         phases = (initial_phases + frame / frame_count) % 1.0
-        xs, ys = simulated_positions(model.stations, 1.0, phases)
+        xs, ys = position_fn(phases)
         frames.append(go.Frame(name=str(frame), data=[go.Scatter(x=xs, y=ys,
                            mode="markers", marker=dict(size=13, color="#f97316",
                                                        line=dict(color="white", width=1)),
@@ -338,14 +376,14 @@ def make_fast_simulation(model, plan, playback_multiplier):
 def make_csv(plan, nozzle_type):
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow(["Unidad", "Chainage_m", "Caudal_nominal_a_velocidad_m3h",
-                     "Motor_placa_HP", "Salida", "Estado"])
+    writer.writerow(["Unidad", "Chainage_m", "Angulo_descarga_deg",
+                     "Caudal_nominal_a_velocidad_m3h", "Motor_placa_HP", "Salida", "Estado"])
     flow_per_active = plan.module_flow_full_speed_m3_h * plan.speed_fraction
     for i, chainage in enumerate(plan.module_chainages_m, 1):
-        writer.writerow([f"RF-{i:02d}", f"{chainage:.1f}", f"{flow_per_active:.1f}",
+        writer.writerow([f"RF-{i:02d}", f"{chainage:.1f}", f"{plan.module_angles_deg[i-1]:.1f}", f"{flow_per_active:.1f}",
                          f"{RIVERFLOW_MOTOR_HP:.0f}", nozzle_type, "Activa"])
     for i in range(plan.standby_modules):
-        writer.writerow([f"RES-{i+1:02d}", "Por definir", 0,
+        writer.writerow([f"RES-{i+1:02d}", "Por definir", "Por definir", 0,
                          f"{RIVERFLOW_MOTOR_HP:.0f}", nozzle_type, "Reserva"])
     return output.getvalue().encode("utf-8-sig")
 
@@ -438,6 +476,23 @@ def main():
         except ValueError as exc:
             st.sidebar.error(str(exc))
             st.stop()
+    angle_mode = st.sidebar.radio("Orientación de descargas",
+                                  ["Todas alineadas", "Editar ángulos por unidad"],
+                                  help="0° sigue el recorrido horario; valores positivos apuntan hacia una margen. "
+                                       "La penalización por ángulo es una hipótesis de escenario.")
+    if angle_mode == "Todas alineadas":
+        common_angle = st.sidebar.slider("Ángulo de descarga respecto al recorrido (°)",
+                                         -60, 60, 0, 5)
+        module_angles = [float(common_angle)] * active_modules
+    else:
+        angles_text = st.sidebar.text_area("Ángulos por unidad (°), separados por coma",
+                                           value=", ".join(["0"] * active_modules),
+                                           key=f"riverflow_angles_{active_modules}", height=100)
+        try:
+            module_angles = [float(piece.strip()) for piece in angles_text.split(",") if piece.strip()]
+        except ValueError:
+            st.sidebar.error("Los ángulos deben ser números separados por comas.")
+            st.stop()
 
     st.sidebar.header("Tratamiento separado")
     turnover_h = st.sidebar.number_input("Recirculación de filtración (h)",
@@ -452,7 +507,9 @@ def main():
             calm_zone_width_m=calm_width_m, filtration_turnover_h=turnover_h,
             floor_manning_n=floor_n, wall_manning_n_current=wall_n_current,
             wall_manning_n_calm=wall_n_calm, curve_mode=curve_mode,
-            module_chainages_m=manual_positions)
+            module_chainages_m=manual_positions, module_angles_deg=module_angles)
+        field = compute_field_2d(model.stations, plan, depth_m,
+                                 scale_m_per_unit=model.geometry.scale_m_per_unit)
     except ValueError as exc:
         st.error(str(exc))
         st.stop()
@@ -474,19 +531,20 @@ def main():
     st.subheader("Resultado del escenario")
     c1, c2, c3, c4, c5 = st.columns(5)
     c1.metric("Meta de vuelta", f"{plan.target_lap_min:.1f} min")
-    c2.metric("Vuelta estimada", f"{plan.estimated_lap_min:.1f} min")
+    c2.metric("Vuelta media V/Q", f"{plan.estimated_lap_min:.1f} min")
     c3.metric("Caudal de unidades", f"{plan.installed_operating_flow_m3_h:,.0f} m³/h")
     c4.metric("Corriente longitudinal · escenario", f"{plan.equivalent_channel_flow_m3_h:,.0f} m³/h")
-    c5.metric("Velocidad de recorrido", f"{plan.velocity_lap_m_s:.3f} m/s")
-    if plan.estimated_lap_min <= plan.target_lap_min:
-        st.info(f"Este escenario de sensibilidad cumple la meta con {active_modules} unidades; "
-                f"estimación matemática: {plan.required_active_modules} activas. "
-                "No utilices esa cantidad para compra: la energía útil, las pérdidas y el punto "
-                "de operación no están calibrados para NYA.")
+    c5.metric("Vuelta central 2D", f"{field.lane_lap_min[1]:.1f} min")
+    slow_lane = max(field.lane_lap_min)
+    if slow_lane <= plan.target_lap_min:
+        st.info(f"El escenario conceptual queda bajo la meta en las tres trayectorias 2D "
+                f"({min(field.lane_lap_min):.1f}–{slow_lane:.1f} min). "
+                "No es una garantía de recorrido real ni una cantidad de compra.")
     else:
-        st.warning(f"Bajo la energía útil supuesta, el balance conceptual estima "
-                   f"{plan.required_active_modules} unidades activas para {target_lap_min:.1f} min. "
-                   "No es una selección de equipos validada.")
+        st.warning(f"La trayectoria más lenta del escenario 2D tarda {slow_lane:.1f} min, "
+                   f"por encima de la meta de {target_lap_min:.1f} min. "
+                   f"La aritmética V/Q indica {plan.required_active_modules} unidades para la meta, "
+                   "pero no dimensiona las trayectorias ni constituye una selección de compra.")
 
     g1, g2, g3, g4, g5 = st.columns(5)
     g1.metric("Volumen desde DXF", f"{plan.volume_m3:,.0f} m³")
@@ -495,6 +553,8 @@ def main():
     g4.metric("Filtración separada", f"{plan.filtration_flow_m3_h:,.0f} m³/h")
     g5.metric("Q por unidad según curva", f"{plan.module_flow_full_speed_m3_h:,.0f} m³/h",
               help=f"Interpolado a {local_head_ft:.1f} ft ({local_head_ft * 0.3048:.2f} m) de TDH local estimada, a plena velocidad.")
+    st.caption(f"Acoplamiento por ancho y orientación propuestos: {plan.placement_effectiveness:.0%} "
+               "del escenario de referencia. Es una hipótesis, no una eficiencia certificada.")
 
     (tab_map, tab_explain, tab_hydraulic, tab_fast, tab_treatment,
      tab_equipment, tab_references) = st.tabs(
@@ -505,15 +565,19 @@ def main():
         st.info("Circulación definida: sentido horario. El origen del recorrido es el punto inicial del DXF; "
                 "las posiciones editables en metros aumentan en ese sentido.")
         show_installation = st.checkbox("Mostrar montaje conceptual: bomba, tomas y descarga", value=True)
-        show_heatmap = st.checkbox("Colorear zonas según velocidad Q/A", value=True)
-        st.plotly_chart(make_map(model, plan, show_installation, show_heatmap), width="stretch")
-        st.caption("Mapa de velocidad longitudinal equivalente por sección: azul = menor, rojo = mayor. "
-                   "Cada franja se colorea uniformemente a lo ancho; NO representa remolinos, "
-                   "gradientes laterales, corrientes cerca de playas ni un resultado CFD.")
+        show_heatmap = st.checkbox("Colorear campo 2D preliminar de velocidad", value=True)
+        st.plotly_chart(make_map(model, plan, show_installation, show_heatmap, field), width="stretch")
+        st.caption("Mapa 2D conceptual: azul = menor, rojo = mayor. Conserva el caudal equivalente "
+                   "en cada sección y muestra gradientes laterales hipotéticos por márgenes y descargas. "
+                   "No resuelve turbulencia, remolinos reales ni velocidades de seguridad; NO es CFD validado.")
         st.caption("Naranja: bomba local propuesta en una margen. Azul: dos tomas de succión. Verde: "
                    "descarga y dirección tentativa. Las conexiones son símbolos esquemáticos; "
                    "no representan cotas, diámetros, orientación definitiva ni alcance hidráulico. "
-                   "Riverflow debe aprobar ubicación y detalle para NYA.")
+                   "La orientación y la eficacia local siguen siendo supuestos para comparar escenarios.")
+        fm1, fm2, fm3 = st.columns(3)
+        fm1.metric("Campo 2D · mín–máx", f"{np.min(field.speed_m_s):.3f}–{np.max(field.speed_m_s):.3f} m/s")
+        fm2.metric("Vuelta carril central 2D", f"{field.lane_lap_min[1]:.1f} min")
+        fm3.metric("Residuo numérico de caudal", f"{field.volume_residual_fraction:.2%}")
         st.metric("Longitud del circuito", f"{plan.length_m:.0f} m")
         z1, z2 = st.columns(2)
         z1.metric("Canal de corriente", f"{plan.current_zone_length_m:.0f} m")
@@ -531,7 +595,8 @@ def main():
             f"por unidad a la TDH local supuesta de {local_head_ft:.1f} ft y plena velocidad.\n"
             f"3. **Movimiento del río:** {active_modules} unidades dan "
             f"{plan.installed_operating_flow_m3_h:,.0f} m³/h de descarga local estimada; "
-            f"con {transfer_pct:.1f}% de energía hidráulica útil supuesta y la resistencia "
+            f"con {transfer_pct:.1f}% de energía hidráulica útil supuesta, un factor de "
+            f"ubicación/orientación de {plan.placement_effectiveness:.0%} y la resistencia "
             f"Manning del DXF, la corriente longitudinal del escenario es "
             f"{plan.equivalent_channel_flow_m3_h:,.0f} m³/h.\n"
             f"4. **Tiempo de vuelta:** volumen ÷ circulación equivalente = "
@@ -550,10 +615,11 @@ def main():
                 "solo determina el caudal de la curva. El balance incluye fricción Manning; "
                 "otras pérdidas se concentran en la fracción desconocida. Se necesitan "
                 "mediciones o CFD para calibrarla.")
-        st.markdown("**Referencia ya recibida:** plano de montaje y curva H–Q en imagen. "
-                    "**Faltan para cerrar el diseño NYA:** cotas y recorridos reales por estación, "
-                    "pérdidas de succión/descarga, curvas a velocidades parciales o datos eléctricos "
-                    "certificados, prueba de circulación o CFD y diseño sanitario independiente.")
+        st.markdown("**Base disponible:** DXF, plano de montaje y curva H–Q en imagen. "
+                    "La app explora supuestos editables sin pedir nuevas fichas a proveedores. "
+                    "Para construcción siguen sin conocerse las cotas exactas, pérdidas de "
+                    "succión/descarga, desempeño a velocidades parciales, acoplamiento real de "
+                    "los jets y diseño sanitario definitivo.")
 
     with tab_hydraulic:
         st.subheader("Fricción del canal · Manning")
@@ -605,18 +671,28 @@ def main():
         h1.metric("V equivalente en canal de corriente", f"{plan.current_velocity_min_m_s:.3f}–{plan.current_velocity_max_m_s:.3f} m/s")
         h2.metric("V equivalente en todo el recorrido", f"{plan.velocity_min_m_s:.3f}–{plan.velocity_max_m_s:.3f} m/s")
         h3.metric("V equivalente Q/A medio", f"{plan.velocity_equivalent_m_s:.3f} m/s")
-        st.caption("Velocidad de recorrido = longitud / tiempo estimado. Las velocidades por sección "
-                   "son equivalentes Q/A, no mediciones ni un campo CFD; cambian con el ancho del DXF.")
+        st.caption("Velocidad de recorrido = longitud / tiempo volumétrico estimado. Los valores "
+                   "Q/A son promedios por sección; el mapa 2D muestra un reparto lateral hipotético "
+                   "que conserva ese mismo caudal, no un campo CFD medido.")
+        st.markdown("**Tiempos de vuelta por trayectoria 2D conceptual**")
+        lane_cols = st.columns(3)
+        for col, label, minutes in zip(lane_cols, ("Carril 20%", "Carril central", "Carril 80%"),
+                                       field.lane_lap_min):
+            col.metric(label, f"{minutes:.1f} min")
+        st.caption("Estas trayectorias se integran en el campo 2D y difieren del tiempo volumétrico V/Q. "
+                   "La forma lateral y el acoplamiento del jet son hipótesis no calibradas.")
         st.plotly_chart(make_count_chart(plan), width="stretch")
         st.markdown("**Sensibilidad a la energía útil no medida**")
         sensitivity_rows = []
         for percent in (0.5, 1.0, 2.0, 5.0):
             q_scenario = scenario_channel_flow_m3_h(
                 plan.channel_resistance_s2_m5, plan.module_flow_full_speed_m3_h,
-                plan.active_modules, plan.speed_fraction, percent / 100)
+                plan.active_modules, plan.speed_fraction, percent / 100,
+                plan.placement_effectiveness)
             q_one = scenario_channel_flow_m3_h(
                 plan.channel_resistance_s2_m5, plan.module_flow_full_speed_m3_h,
-                1, plan.speed_fraction, percent / 100)
+                1, plan.speed_fraction, percent / 100,
+                plan.placement_effectiveness)
             sensitivity_rows.append({
                 "Energía útil supuesta": f"{percent:.1f}%",
                 "Vuelta con unidades actuales": f"{plan.volume_m3 * 60 / q_scenario:.1f} min",
@@ -645,8 +721,8 @@ def main():
                  "Estado": "Curva H–Q desde JPG aproximado o dos anclas; no es un punto instalado"},
                 {"Dato editable": "Variador y energía útil", "Afecta": "Corriente, vuelta, velocidades y fricción",
                  "Estado": "Leyes de afinidad aproximadas; energía útil no medida"},
-                {"Dato editable": "Ubicación y tipo de salida", "Afecta": "Plano, distancias y listado de equipos",
-                 "Estado": "Sin modelo de alcance, pérdidas de boquilla ni CFD"},
+                {"Dato editable": "Ubicación y orientación de módulos", "Afecta": "Acoplamiento supuesto, corriente, vuelta y campo 2D",
+                 "Estado": "Sensibilidad geométrica sin pérdidas de boquilla ni calibración"},
                 {"Dato editable": "Recambio de filtración", "Afecta": "Caudal de tratamiento separado",
                  "Estado": "No se suma al caudal de propulsión"},
             ], width="stretch", hide_index=True)
@@ -656,12 +732,12 @@ def main():
                    "requieren dimensiones de tomas/salidas, trazado local y validación del fabricante. "
                    "La placa de 10 HP no es el consumo instantáneo. No seleccionar bombas con "
                    "la cantidad calculada hasta calibrar energía útil y pérdidas de cada instalación.")
-        st.markdown("**Datos indispensables para decidir:** (1) perfiles y cotas del DXF de NYA, "
-                    "profundidad real y niveles de agua; (2) planos de cada módulo con diámetros, "
-                    "longitudes, accesorios y salida elegida; (3) curva H–Q y potencia a varias RPM "
-                    "confirmadas por Riverflow; (4) ensayo, prototipo o CFD calibrado de empuje y "
-                    "velocidad en zonas estrechas, curvas y entradas a playa; (5) acabado final y "
-                    "rugosidad; (6) diseño sanitario/filtración independiente y aforo de usuarios.")
+        st.markdown("**Ruta interna de mejora:** (1) estimar cotas y profundidades por tramo; "
+                    "(2) construir circuitos locales con diámetros y pérdidas de referencias públicas; "
+                    "(3) comparar curvas de bomba y variador dentro de rangos explícitos; "
+                    "(4) refinar este campo 2D y estudiar en CFD 3D solo las zonas críticas; "
+                    "(5) mantener filtración, aforo y seguridad como evaluaciones separadas. "
+                    "Ninguna de estas simulaciones sustituye la verificación antes de construir.")
 
     with tab_fast:
         st.subheader("Vuelta conceptual acelerada · sentido horario")
@@ -669,13 +745,13 @@ def main():
                                     format_func=lambda value: f"{value}×",
                                     help="Acelera solo la animación. No cambia RPM, caudal ni tiempo físico de vuelta.")
         p1, p2, p3 = st.columns(3)
-        p1.metric("Vuelta física estimada", f"{plan.estimated_lap_min:.1f} min")
+        p1.metric("Vuelta carril central · escenario 2D", f"{field.lane_lap_min[1]:.1f} min")
         p2.metric("Reproducción", f"{playback}×")
-        p3.metric("Duración de un ciclo en pantalla", f"{plan.estimated_lap_min * 60 / playback:.1f} s")
-        st.plotly_chart(make_fast_simulation(model, plan, playback), width="stretch")
-        st.caption("Pulsa ▶ en la gráfica. Los colores muestran la velocidad longitudinal Q/A "
-                   "de cada franja y los flotadores siguen el tiempo integrado: pasan más "
-                   "despacio por los tramos anchos. No representan trayectorias reales, turbulencia, "
+        p3.metric("Duración de un ciclo en pantalla", f"{field.lane_lap_min[1] * 60 / playback:.1f} s")
+        st.plotly_chart(make_fast_simulation(model, plan, playback, field), width="stretch")
+        st.caption("Pulsa ▶ en la gráfica. Los colores y el flotador central utilizan el mismo "
+                   "campo 2D conceptual; la velocidad varía con ancho, margen y ubicación de "
+                   "módulos. No representan trayectorias medidas, turbulencia, "
                    "remolinos, interacción entre usuarios ni CFD. La reproducción acelerada no "
                    "modifica los resultados hidráulicos.")
 

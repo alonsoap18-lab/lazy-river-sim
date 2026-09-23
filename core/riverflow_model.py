@@ -9,7 +9,8 @@ intersection, electrical demand, and CFD result remain unverified.
 """
 
 from dataclasses import dataclass
-from math import ceil, inf, isfinite, sqrt
+from math import ceil, cos, inf, isfinite, radians, sqrt
+from statistics import median
 from typing import Optional, Sequence
 
 
@@ -93,6 +94,8 @@ class RiverflowPlan:
     active_motor_nameplate_hp: float
     total_motor_nameplate_hp: float
     module_chainages_m: tuple[float, ...]
+    module_angles_deg: tuple[float, ...]
+    placement_effectiveness: float
     max_current_distance_to_module_m: float
     station_velocities_m_s: tuple[float, ...]
     station_zones: tuple[str, ...]
@@ -100,15 +103,18 @@ class RiverflowPlan:
 
 def scenario_channel_flow_m3_h(resistance_s2_m5: float, module_flow_m3_h: float,
                                active_modules: int,
-                               speed_fraction: float, useful_energy_fraction: float) -> float:
+                               speed_fraction: float, useful_energy_fraction: float,
+                               placement_effectiveness: float = 1.0) -> float:
     """Manning-only energy-balance sensitivity; NOT a validated pump/jet solver."""
-    if active_modules < 1 or resistance_s2_m5 <= 0 or module_flow_m3_h <= 0:
+    if (active_modules < 1 or resistance_s2_m5 <= 0 or module_flow_m3_h <= 0
+            or placement_effectiveness <= 0):
         raise ValueError("El escenario requiere unidades, caudal y resistencia positivos.")
     # The selectable local TDH is already used to read pump flow. Do not reward
     # a lossier installation with more useful river power: keep this scale fixed.
     head_m = RIVERFLOW_DRIVE_REFERENCE_HEAD_FT * 0.3048 * speed_fraction ** 2
     useful_energy_m4_s = (active_modules * module_flow_m3_h / 3600 *
-                          speed_fraction * head_m * useful_energy_fraction)
+                          speed_fraction * head_m * useful_energy_fraction
+                          * placement_effectiveness)
     return (useful_energy_m4_s / resistance_s2_m5) ** (1 / 3) * 3600
 
 
@@ -143,6 +149,7 @@ def compute_riverflow_plan(
     wall_manning_n_calm: Optional[float] = None,
     curve_mode: str = "photo",
     module_chainages_m: Optional[Sequence[float]] = None,
+    module_angles_deg: Optional[Sequence[float]] = None,
 ) -> RiverflowPlan:
     if len(stations) < 2:
         raise ValueError("El DXF debe producir al menos dos secciones de canal.")
@@ -163,6 +170,23 @@ def compute_riverflow_plan(
                   for s in stations)
     if any(not isfinite(float(s["width_m"])) or float(s["width_m"]) <= 0 for s in stations):
         raise ValueError("Todas las secciones del DXF deben tener un ancho positivo y finito.")
+    positions = _module_positions(stations, active_modules, zones, module_chainages_m)
+    angles = tuple(float(a) for a in (module_angles_deg if module_angles_deg is not None
+                                      else (0.0,) * active_modules))
+    if len(angles) != active_modules or any(not isfinite(a) or abs(a) > 75 for a in angles):
+        raise ValueError("Indique un ángulo entre -75° y 75° por unidad activa.")
+    current_widths = [float(s["width_m"]) for s, z in zip(stations, zones) if z == "current"]
+    reference_width = median(current_widths or [float(s["width_m"]) for s in stations])
+    # Explicit, uncalibrated coupling sensitivity. A jet angled away from the
+    # travel direction or placed in a wide beach contributes less longitudinal
+    # momentum. This is not a manufacturer efficiency or a safety prediction.
+    scores = []
+    for position, angle in zip(positions, angles):
+        nearest = min(stations, key=lambda s: abs(float(s["chainage_m"]) - position))
+        local_width = float(nearest["width_m"])
+        width_score = min(1.0, sqrt(reference_width / local_width))
+        scores.append(width_score * cos(radians(angle)) ** 2)
+    placement_effectiveness = sum(scores) / active_modules
     station_manning = tuple(
         composite_manning_n(float(station["width_m"]), depth_m, floor_manning_n,
                             wall_manning_n_calm if zone == "calm" else wall_manning_n_current)
@@ -201,10 +225,11 @@ def compute_riverflow_plan(
         raise ValueError("La resistencia del canal debe ser positiva.")
     pump_head_operating_m = RIVERFLOW_DRIVE_REFERENCE_HEAD_FT * 0.3048 * speed_fraction ** 2
     pump_flow_operating_m3_s = operating_flow_m3_h / 3600
-    useful_power_per_rho_g_m4_s = pump_flow_operating_m3_s * pump_head_operating_m * transfer_fraction
+    useful_power_per_rho_g_m4_s = (pump_flow_operating_m3_s * pump_head_operating_m
+                                   * transfer_fraction * placement_effectiveness)
     equivalent_flow_m3_h = scenario_channel_flow_m3_h(
         resistance, module_flow_full_speed_m3_h, active_modules,
-        speed_fraction, transfer_fraction)
+        speed_fraction, transfer_fraction, placement_effectiveness)
     estimated_lap_min = volume_m3 * 60 / equivalent_flow_m3_h
     current_lap_min = 0.0
     calm_lap_min = 0.0
@@ -236,10 +261,10 @@ def compute_riverflow_plan(
     equivalent_velocity = (equivalent_flow_m3_h / 3600 / (average_width * depth_m)
                            if average_width > 0 else 0.0)
     module_useful_energy = (module_flow_full_speed_m3_h * speed_fraction / 3600
-                            * pump_head_operating_m * transfer_fraction)
+                            * pump_head_operating_m * transfer_fraction
+                            * placement_effectiveness)
     required_modules = ceil((target_flow_m3_h / 3600) ** 3 * resistance /
                             module_useful_energy)
-    positions = _module_positions(stations, active_modules, zones, module_chainages_m)
     current_distances = [min(min(abs(float(station["chainage_m"]) - position),
                                  length_m - abs(float(station["chainage_m"]) - position))
                              for position in positions)
@@ -276,6 +301,7 @@ def compute_riverflow_plan(
         active_motor_nameplate_hp=active_modules * RIVERFLOW_MOTOR_HP,
         total_motor_nameplate_hp=(active_modules + standby_modules) * RIVERFLOW_MOTOR_HP,
         module_chainages_m=positions, station_velocities_m_s=station_velocities,
+        module_angles_deg=angles, placement_effectiveness=placement_effectiveness,
         max_current_distance_to_module_m=max(current_distances) if current_distances else 0.0,
         station_zones=zones,
     )
