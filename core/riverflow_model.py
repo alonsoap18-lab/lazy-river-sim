@@ -2,7 +2,7 @@
 
 Riverflow modules recirculate water locally. Their combined pump discharge is
 therefore not automatically the through-flow of every channel cross section.
-The longitudinal transfer fraction is an explicit, uncalibrated scenario input.
+The longitudinal useful-energy fraction is an explicit, uncalibrated scenario input.
 The supplied manufacturer curve provides two labelled H-Q anchors. A local
 design-head scenario is interpolated between them; the installed system-curve
 intersection, electrical demand, and CFD result remain unverified.
@@ -17,6 +17,7 @@ US_GPM_TO_M3_H = 0.22712470704
 RIVERFLOW_RATED_GPM = 2440.0
 RIVERFLOW_RATED_M3_H = RIVERFLOW_RATED_GPM * US_GPM_TO_M3_H
 RIVERFLOW_MOTOR_HP = 10.0
+RIVERFLOW_DRIVE_REFERENCE_HEAD_FT = 4.0  # fixed energy scale, not installed TDH
 RIVERFLOW_CURVE_POINTS = ((4.0, 2440.0), (10.0, 1220.0))  # ft head, US gpm
 # Approximate points read from the supplied raster plot (not manufacturer data).
 # The two labelled end points above take precedence over the plotted pixels.
@@ -67,6 +68,8 @@ class RiverflowPlan:
     curve_mode: str
     speed_fraction: float
     transfer_fraction: float
+    channel_resistance_s2_m5: float
+    useful_drive_power_w: float
     installed_operating_flow_m3_h: float
     equivalent_channel_flow_m3_h: float
     estimated_lap_min: float
@@ -95,6 +98,20 @@ class RiverflowPlan:
     station_zones: tuple[str, ...]
 
 
+def scenario_channel_flow_m3_h(resistance_s2_m5: float, module_flow_m3_h: float,
+                               active_modules: int,
+                               speed_fraction: float, useful_energy_fraction: float) -> float:
+    """Manning-only energy-balance sensitivity; NOT a validated pump/jet solver."""
+    if active_modules < 1 or resistance_s2_m5 <= 0 or module_flow_m3_h <= 0:
+        raise ValueError("El escenario requiere unidades, caudal y resistencia positivos.")
+    # The selectable local TDH is already used to read pump flow. Do not reward
+    # a lossier installation with more useful river power: keep this scale fixed.
+    head_m = RIVERFLOW_DRIVE_REFERENCE_HEAD_FT * 0.3048 * speed_fraction ** 2
+    useful_energy_m4_s = (active_modules * module_flow_m3_h / 3600 *
+                          speed_fraction * head_m * useful_energy_fraction)
+    return (useful_energy_m4_s / resistance_s2_m5) ** (1 / 3) * 3600
+
+
 def _module_positions(stations: Sequence[dict], count: int,
                       zones: Sequence[str], manual_chainages: Optional[Sequence[float]]) -> tuple[float, ...]:
     length = float(stations[-1]["chainage_m"])
@@ -118,7 +135,7 @@ def compute_riverflow_plan(
     stations: Sequence[dict], *, depth_m: float, target_lap_min: float,
     active_modules: int, standby_modules: int = 0,
     module_head_full_speed_ft: float = 4.0,
-    speed_fraction: float = 1.0, transfer_fraction: float = 1.0,
+    speed_fraction: float = 1.0, transfer_fraction: float = 0.02,
     calm_zone_width_m: float = 15.0, filtration_turnover_h: float = 4.0,
     manning_n_current: float = 0.015, manning_n_calm: float = 0.015,
     floor_manning_n: Optional[float] = None,
@@ -140,7 +157,7 @@ def compute_riverflow_plan(
     if active_modules < 1 or standby_modules < 0:
         raise ValueError("Debe existir al menos una unidad activa.")
     if not 0 < speed_fraction <= 1 or not 0 < transfer_fraction <= 1:
-        raise ValueError("Las fracciones de velocidad y transferencia deben estar entre 0 y 1.")
+        raise ValueError("Las fracciones de velocidad y energía útil deben estar entre 0 y 1.")
 
     zones = tuple("calm" if float(s["width_m"]) >= calm_zone_width_m else "current"
                   for s in stations)
@@ -167,21 +184,39 @@ def compute_riverflow_plan(
     # Affinity-law scaling is an estimate; the real flow at each speed depends
     # on the manufacturer H-Q curve and the installed local hydraulic network.
     operating_flow_m3_h = active_modules * module_flow_full_speed_m3_h * speed_fraction
-    equivalent_flow_m3_h = operating_flow_m3_h * transfer_fraction
     target_flow_m3_h = volume_m3 * 60 / target_lap_min
-    estimated_lap_min = volume_m3 * 60 / equivalent_flow_m3_h if equivalent_flow_m3_h > 0 else inf
+    # Scenario-only energy balance: useful local-pump hydraulic power drives a
+    # uniform longitudinal through-flow against Manning channel friction.
+    # Unknown nozzle/plumbing/coupling losses are absorbed into the editable
+    # useful-energy fraction; this is not a measured Riverflow performance law.
+    resistance = 0.0
+    for i, (previous, current) in enumerate(zip(stations[:-1], stations[1:])):
+        ds = float(current["chainage_m"]) - float(previous["chainage_m"])
+        width = (float(previous["width_m"]) + float(current["width_m"])) / 2
+        area = width * depth_m
+        radius = area / (width + 2 * depth_m)
+        n = (station_manning[i] + station_manning[i + 1]) / 2
+        resistance += ds * (n / (area * radius ** (2 / 3))) ** 2
+    if resistance <= 0:
+        raise ValueError("La resistencia del canal debe ser positiva.")
+    pump_head_operating_m = RIVERFLOW_DRIVE_REFERENCE_HEAD_FT * 0.3048 * speed_fraction ** 2
+    pump_flow_operating_m3_s = operating_flow_m3_h / 3600
+    useful_power_per_rho_g_m4_s = pump_flow_operating_m3_s * pump_head_operating_m * transfer_fraction
+    equivalent_flow_m3_h = scenario_channel_flow_m3_h(
+        resistance, module_flow_full_speed_m3_h, active_modules,
+        speed_fraction, transfer_fraction)
+    estimated_lap_min = volume_m3 * 60 / equivalent_flow_m3_h
     current_lap_min = 0.0
     calm_lap_min = 0.0
     channel_friction_head_m = 0.0
     target_channel_friction_head_m = 0.0
     cumulative_friction = [0.0]
-    for previous, current, zone in zip(stations[:-1], stations[1:], zones[:-1]):
+    for i, (previous, current, zone) in enumerate(zip(stations[:-1], stations[1:], zones[:-1])):
         ds = float(current["chainage_m"]) - float(previous["chainage_m"])
         width = (float(previous["width_m"]) + float(current["width_m"])) / 2
         area = width * depth_m
         radius = area / (width + 2 * depth_m)
-        n = (station_manning[len(cumulative_friction) - 1] +
-             station_manning[len(cumulative_friction)]) / 2
+        n = (station_manning[i] + station_manning[i + 1]) / 2
         # Manning friction slope Sf = (n Q / (A R^(2/3)))^2, Q in m³/s.
         friction = ds * (n * equivalent_flow_m3_h / 3600 / (area * radius ** (2 / 3))) ** 2
         target_friction = ds * (n * target_flow_m3_h / 3600 / (area * radius ** (2 / 3))) ** 2
@@ -200,8 +235,10 @@ def compute_riverflow_plan(
     average_width = volume_m3 / (length_m * depth_m) if length_m > 0 else 0.0
     equivalent_velocity = (equivalent_flow_m3_h / 3600 / (average_width * depth_m)
                            if average_width > 0 else 0.0)
-    module_capacity = module_flow_full_speed_m3_h * speed_fraction * transfer_fraction
-    required_modules = ceil(target_flow_m3_h / module_capacity) if module_capacity > 0 else 0
+    module_useful_energy = (module_flow_full_speed_m3_h * speed_fraction / 3600
+                            * pump_head_operating_m * transfer_fraction)
+    required_modules = ceil((target_flow_m3_h / 3600) ** 3 * resistance /
+                            module_useful_energy)
     positions = _module_positions(stations, active_modules, zones, module_chainages_m)
     current_distances = [min(min(abs(float(station["chainage_m"]) - position),
                                  length_m - abs(float(station["chainage_m"]) - position))
@@ -217,6 +254,8 @@ def compute_riverflow_plan(
         module_flow_full_speed_m3_h=module_flow_full_speed_m3_h,
         curve_mode=curve_mode,
         speed_fraction=speed_fraction, transfer_fraction=transfer_fraction,
+        channel_resistance_s2_m5=resistance,
+        useful_drive_power_w=998.0 * GRAVITY_M_S2 * useful_power_per_rho_g_m4_s,
         installed_operating_flow_m3_h=operating_flow_m3_h,
         equivalent_channel_flow_m3_h=equivalent_flow_m3_h,
         estimated_lap_min=estimated_lap_min,

@@ -6,7 +6,7 @@ from streamlit.testing.v1 import AppTest
 
 from core.orchestrator import LazyRiverModel
 from core.riverflow_model import compute_riverflow_plan
-from riverflow_app import make_fast_simulation, simulated_positions
+from riverflow_app import make_fast_simulation, make_map, simulated_positions
 
 
 def test_clockwise_fast_playback_is_kinematic_only():
@@ -22,6 +22,11 @@ def test_clockwise_fast_playback_is_kinematic_only():
     fast = make_fast_simulation(model, plan, 600)
     assert len(slow.frames) == len(fast.frames) == 72
     assert slow.layout.updatemenus[0].buttons[0].args[1]["frame"]["duration"] > fast.layout.updatemenus[0].buttons[0].args[1]["frame"]["duration"]
+    assert any(trace.name == "Velocidad Q/A · mapa" for trace in fast.data)
+    assert all(frame.traces == (len(fast.data) - 1,) for frame in fast.frames)
+    heatmap = make_map(model, plan)
+    plain = make_map(model, plan, show_velocity_heatmap=False)
+    assert len(heatmap.data) > len(plain.data)
     assert isclose(plan.estimated_lap_min, plan.volume_m3 * 60 /
                    plan.equivalent_channel_flow_m3_h)
 
@@ -39,6 +44,8 @@ def test_separate_views_and_treatment_recalculate():
                 "Lectura de curva H–Q").value.startswith("Puntos visibles")
     friction_before = next(item for item in app.metric if item.label ==
                            "Pérdida canal · escenario").value
+    lap_before = next(item for item in app.metric if item.label ==
+                      "Vuelta estimada").value
     next(item for item in app.selectbox if item.label ==
          "Acabado propuesto de paredes").set_value("Concreto texturizado tipo piedra")
     app.run()
@@ -46,6 +53,9 @@ def test_separate_views_and_treatment_recalculate():
     friction_after = next(item for item in app.metric if item.label ==
                           "Pérdida canal · escenario").value
     assert float(friction_after.split()[0]) < float(friction_before.split()[0])
+    lap_after = next(item for item in app.metric if item.label ==
+                     "Vuelta estimada").value
+    assert float(lap_after.split()[0]) < float(lap_before.split()[0])
     area_before = next(item for item in app.metric if item.label ==
                        "Área total de filtración · hipótesis").value
     next(item for item in app.number_input if item.label ==

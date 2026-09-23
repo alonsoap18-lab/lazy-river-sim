@@ -1,12 +1,13 @@
 """Regression checks for the Riverflow planning mode and editable scenarios."""
 
-from math import ceil, isclose
+from math import isclose
 
 from core.orchestrator import LazyRiverModel
 from core.centerline import orient_stations_clockwise, signed_centerline_area
 from core.riverflow_model import (RIVERFLOW_RATED_M3_H, US_GPM_TO_M3_H,
                                   composite_manning_n, compute_riverflow_plan,
-                                  riverflow_flow_at_head_ft)
+                                  riverflow_flow_at_head_ft,
+                                  scenario_channel_flow_m3_h)
 
 
 def geometry():
@@ -26,7 +27,10 @@ def test_riverflow_target_and_operating_flow_are_distinct():
     assert isclose(plan.estimated_lap_min,
                    plan.volume_m3 * 60 / plan.equivalent_channel_flow_m3_h)
     assert isclose(plan.velocity_lap_m_s, plan.length_m / (plan.estimated_lap_min * 60))
-    assert plan.required_active_modules == ceil(plan.target_equivalent_flow_m3_h / RIVERFLOW_RATED_M3_H)
+    assert plan.required_active_modules > 0
+    assert isclose(plan.channel_resistance_s2_m5 *
+                   (plan.equivalent_channel_flow_m3_h / 3600) ** 3,
+                   plan.useful_drive_power_w / (998 * 9.81))
     assert plan.active_motor_nameplate_hp == 190
     assert plan.total_motor_nameplate_hp == 200
     assert isclose(plan.filtration_flow_m3_h, plan.volume_m3 / 4)
@@ -41,12 +45,13 @@ def test_manual_changes_propagate_through_scenario():
                                      active_modules=19, standby_modules=1)
     slower = compute_riverflow_plan(stations, depth_m=1.2, target_lap_min=40,
                                      active_modules=20, standby_modules=2,
-                                     speed_fraction=0.8, transfer_fraction=0.7,
+                                     speed_fraction=0.8, transfer_fraction=0.01,
                                      filtration_turnover_h=6,
                                      module_chainages_m=[10.0 * i for i in range(20)])
     assert slower.installed_operating_flow_m3_h == 20 * RIVERFLOW_RATED_M3_H * 0.8
     assert isclose(slower.equivalent_channel_flow_m3_h,
-                   slower.installed_operating_flow_m3_h * 0.7)
+                   scenario_channel_flow_m3_h(slower.channel_resistance_s2_m5,
+                       slower.module_flow_full_speed_m3_h, 20, 0.8, 0.01))
     assert slower.estimated_lap_min > normal.estimated_lap_min
     assert slower.velocity_lap_m_s < normal.velocity_lap_m_s
     assert slower.required_active_modules > normal.required_active_modules
@@ -67,9 +72,9 @@ def test_supplied_curve_changes_all_dependent_results():
     at_ten = compute_riverflow_plan(stations, depth_m=1.2, target_lap_min=40,
                                     active_modules=19, module_head_full_speed_ft=10)
     assert isclose(at_ten.installed_operating_flow_m3_h, at_four.installed_operating_flow_m3_h / 2)
-    assert isclose(at_ten.estimated_lap_min, at_four.estimated_lap_min * 2)
-    assert isclose(at_ten.velocity_equivalent_m_s, at_four.velocity_equivalent_m_s / 2)
-    assert at_ten.required_active_modules == 2 * at_four.required_active_modules - 1
+    assert at_ten.estimated_lap_min > at_four.estimated_lap_min
+    assert at_ten.velocity_equivalent_m_s < at_four.velocity_equivalent_m_s
+    assert at_ten.required_active_modules > at_four.required_active_modules
     assert at_ten.filtration_flow_m3_h == at_four.filtration_flow_m3_h
     for invalid in (3.9, 10.1):
         try:
@@ -113,15 +118,16 @@ def test_clockwise_direction_and_manning_friction_are_auditable():
                                    manning_n_calm=0.030)
     assert isclose(base.volume_m3, compute_riverflow_plan(
         stations, depth_m=1.2, target_lap_min=40, active_modules=19).volume_m3)
-    assert isclose(rough.channel_friction_head_m, 4 * base.channel_friction_head_m)
+    assert rough.channel_resistance_s2_m5 > base.channel_resistance_s2_m5
     assert isclose(rough.target_channel_friction_head_m, 4 * base.target_channel_friction_head_m)
-    assert isclose(rough.estimated_lap_min, base.estimated_lap_min)
+    assert rough.estimated_lap_min > base.estimated_lap_min
+    assert rough.equivalent_channel_flow_m3_h < base.equivalent_channel_flow_m3_h
     assert isclose(base.current_lap_min + base.calm_lap_min, base.estimated_lap_min)
     assert len(base.cumulative_friction_head_m) == len(normalized)
     assert isclose(base.cumulative_friction_head_m[-1], base.channel_friction_head_m)
 
 
-def test_wall_finish_and_smooth_floor_change_composite_friction_only():
+def test_wall_finish_and_smooth_floor_change_coupled_results():
     stations = geometry()
     smooth = compute_riverflow_plan(
         stations, depth_m=1.2, target_lap_min=40, active_modules=19,
@@ -134,8 +140,10 @@ def test_wall_finish_and_smooth_floor_change_composite_friction_only():
     assert isclose(composite_manning_n(10, 1.2, 0.013, 0.013), 0.013)
     assert min(stone.station_manning_n) >= 0.013
     assert max(stone.station_manning_n) < 0.025
-    assert stone.channel_friction_head_m > smooth.channel_friction_head_m
-    assert isclose(stone.estimated_lap_min, smooth.estimated_lap_min)
+    assert stone.channel_resistance_s2_m5 > smooth.channel_resistance_s2_m5
+    assert stone.estimated_lap_min > smooth.estimated_lap_min
+    assert stone.velocity_max_m_s < smooth.velocity_max_m_s
+    assert stone.required_active_modules > smooth.required_active_modules
     assert isclose(stone.filtration_flow_m3_h, smooth.filtration_flow_m3_h)
 
 
@@ -158,6 +166,6 @@ if __name__ == "__main__":
     test_supplied_curve_changes_all_dependent_results()
     test_geometry_and_calm_threshold_update_integrated_results()
     test_clockwise_direction_and_manning_friction_are_auditable()
-    test_wall_finish_and_smooth_floor_change_composite_friction_only()
+    test_wall_finish_and_smooth_floor_change_coupled_results()
     test_photo_curve_changes_intermediate_head_without_changing_anchors()
     print("Riverflow planning checks passed")
