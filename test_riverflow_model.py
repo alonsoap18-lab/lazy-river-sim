@@ -5,7 +5,8 @@ from math import ceil, isclose
 from core.orchestrator import LazyRiverModel
 from core.centerline import orient_stations_clockwise, signed_centerline_area
 from core.riverflow_model import (RIVERFLOW_RATED_M3_H, US_GPM_TO_M3_H,
-                                  compute_riverflow_plan, riverflow_flow_at_head_ft)
+                                  composite_manning_n, compute_riverflow_plan,
+                                  riverflow_flow_at_head_ft)
 
 
 def geometry():
@@ -58,7 +59,8 @@ def test_manual_changes_propagate_through_scenario():
 def test_supplied_curve_changes_all_dependent_results():
     stations = geometry()
     assert isclose(riverflow_flow_at_head_ft(4), 2440 * US_GPM_TO_M3_H)
-    assert isclose(riverflow_flow_at_head_ft(7), 1830 * US_GPM_TO_M3_H)
+    assert isclose(riverflow_flow_at_head_ft(7), 1920 * US_GPM_TO_M3_H)
+    assert isclose(riverflow_flow_at_head_ft(7, "anchors"), 1830 * US_GPM_TO_M3_H)
     assert isclose(riverflow_flow_at_head_ft(10), 1220 * US_GPM_TO_M3_H)
     at_four = compute_riverflow_plan(stations, depth_m=1.2, target_lap_min=40,
                                      active_modules=19, module_head_full_speed_ft=4)
@@ -119,10 +121,43 @@ def test_clockwise_direction_and_manning_friction_are_auditable():
     assert isclose(base.cumulative_friction_head_m[-1], base.channel_friction_head_m)
 
 
+def test_wall_finish_and_smooth_floor_change_composite_friction_only():
+    stations = geometry()
+    smooth = compute_riverflow_plan(
+        stations, depth_m=1.2, target_lap_min=40, active_modules=19,
+        floor_manning_n=0.013, wall_manning_n_current=0.017,
+        wall_manning_n_calm=0.017)
+    stone = compute_riverflow_plan(
+        stations, depth_m=1.2, target_lap_min=40, active_modules=19,
+        floor_manning_n=0.013, wall_manning_n_current=0.025,
+        wall_manning_n_calm=0.025)
+    assert isclose(composite_manning_n(10, 1.2, 0.013, 0.013), 0.013)
+    assert min(stone.station_manning_n) >= 0.013
+    assert max(stone.station_manning_n) < 0.025
+    assert stone.channel_friction_head_m > smooth.channel_friction_head_m
+    assert isclose(stone.estimated_lap_min, smooth.estimated_lap_min)
+    assert isclose(stone.filtration_flow_m3_h, smooth.filtration_flow_m3_h)
+
+
+def test_photo_curve_changes_intermediate_head_without_changing_anchors():
+    stations = geometry()
+    photo = compute_riverflow_plan(stations, depth_m=1.2, target_lap_min=40,
+                                   active_modules=19, module_head_full_speed_ft=7,
+                                   curve_mode="photo")
+    anchors = compute_riverflow_plan(stations, depth_m=1.2, target_lap_min=40,
+                                     active_modules=19, module_head_full_speed_ft=7,
+                                     curve_mode="anchors")
+    assert photo.module_flow_full_speed_m3_h > anchors.module_flow_full_speed_m3_h
+    assert photo.estimated_lap_min < anchors.estimated_lap_min
+    assert photo.filtration_flow_m3_h == anchors.filtration_flow_m3_h
+
+
 if __name__ == "__main__":
     test_riverflow_target_and_operating_flow_are_distinct()
     test_manual_changes_propagate_through_scenario()
     test_supplied_curve_changes_all_dependent_results()
     test_geometry_and_calm_threshold_update_integrated_results()
     test_clockwise_direction_and_manning_friction_are_auditable()
+    test_wall_finish_and_smooth_floor_change_composite_friction_only()
+    test_photo_curve_changes_intermediate_head_without_changing_anchors()
     print("Riverflow planning checks passed")

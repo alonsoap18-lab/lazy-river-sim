@@ -33,6 +33,19 @@ def test_separate_views_and_treatment_recalculate():
         "Riverflow · módulos locales")
     app.run()
     assert not app.exception and len(app.tabs) == 7
+    assert next(item for item in app.selectbox if item.label ==
+                "Acabado propuesto de paredes").value == "Piedra local impermeabilizada"
+    assert next(item for item in app.selectbox if item.label ==
+                "Lectura de curva H–Q").value.startswith("Puntos visibles")
+    friction_before = next(item for item in app.metric if item.label ==
+                           "Pérdida canal · escenario").value
+    next(item for item in app.selectbox if item.label ==
+         "Acabado propuesto de paredes").set_value("Concreto texturizado tipo piedra")
+    app.run()
+    assert not app.exception
+    friction_after = next(item for item in app.metric if item.label ==
+                          "Pérdida canal · escenario").value
+    assert float(friction_after.split()[0]) < float(friction_before.split()[0])
     area_before = next(item for item in app.metric if item.label ==
                        "Área total de filtración · hipótesis").value
     next(item for item in app.number_input if item.label ==

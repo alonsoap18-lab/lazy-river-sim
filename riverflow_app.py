@@ -12,15 +12,17 @@ import streamlit as st
 from core.orchestrator import LazyRiverModel
 from core.centerline import signed_centerline_area
 from core.riverflow_model import (
+    RIVERFLOW_DIGITIZED_POINTS,
     RIVERFLOW_MOTOR_HP,
     RIVERFLOW_RATED_GPM,
     RIVERFLOW_RATED_M3_H,
+    US_GPM_TO_M3_H,
     compute_riverflow_plan,
     riverflow_flow_at_head_ft,
 )
 
 
-MODEL_VERSION = "riverflow-guided-fast-simulation-4"
+MODEL_VERSION = "riverflow-curve-surfaces-treatment-5"
 ASSET_DIR = os.path.join(os.path.dirname(__file__), "assets")
 
 
@@ -313,13 +315,25 @@ def main():
     depth_m = st.sidebar.number_input("Profundidad de agua (m)", 0.4, 3.0, 1.2, 0.05)
     calm_width_m = st.sidebar.number_input("Zona calma desde ancho (m)", 4.0, 40.0, 15.0, 0.5,
                                            help="Las partes anchas del DXF se tratan como entradas a playa.")
-    st.sidebar.subheader("Resistencia del canal")
-    manning_current = st.sidebar.slider("Manning n · canal de corriente", 0.010, 0.030,
-                                        0.015, 0.001, format="%.3f",
-                                        help="Coeficiente editable de rugosidad para tramos estrechos. Afecta la pérdida por fricción del canal; no se aplica directamente a la curva de cada bomba local.")
-    manning_calm = st.sidebar.slider("Manning n · entradas a playa", 0.010, 0.030,
-                                     0.015, 0.001, format="%.3f",
-                                     help="Rugosidad de las zonas anchas. Puede diferir por acabado superficial; requiere confirmar materiales y calibración.")
+    st.sidebar.subheader("Acabados y resistencia del canal")
+    wall_finish = st.sidebar.selectbox(
+        "Acabado propuesto de paredes",
+        ["Piedra local impermeabilizada", "Concreto texturizado tipo piedra", "Personalizado"],
+        help="Son escenarios de fase 1. El revestimiento final y su rugosidad deben definirse y verificarse.")
+    wall_default = {"Piedra local impermeabilizada": 0.025,
+                    "Concreto texturizado tipo piedra": 0.017,
+                    "Personalizado": 0.020}[wall_finish]
+    floor_n = st.sidebar.slider("Manning n · piso liso", 0.010, 0.035, 0.013,
+                                0.001, format="%.3f",
+                                help="Hipótesis para un fondo liso transitable; no certifica textura antideslizante ni seguridad.")
+    wall_n_current = st.sidebar.slider(
+        "Manning n · paredes de corriente", 0.010, 0.040, wall_default,
+        0.001, format="%.3f", key=f"rf_wall_current_{wall_finish}",
+        help="Escenario de rugosidad de pared, no un valor confirmado para el material de NYA.")
+    wall_n_calm = st.sidebar.slider(
+        "Manning n · paredes de playa", 0.010, 0.040, wall_default,
+        0.001, format="%.3f", key=f"rf_wall_calm_{wall_finish}",
+        help="Se usa en las secciones anchas identificadas desde el DXF.")
 
     try:
         model, issues = load_geometry(uploaded.getvalue() if uploaded else None,
@@ -342,8 +356,14 @@ def main():
     local_head_ft = st.sidebar.number_input(
         "TDH local estimada por unidad a plena velocidad (ft)", 4.0, 10.0, 4.0, 0.5,
         help="Escenario de carga en el circuito local de una bomba, NO la TDH de una red central. "
-             "Se interpola entre 2,440 US GPM a 4 ft y 1,220 US GPM a 10 ft de la curva recibida. "
+             "Se interpola dentro de la curva recibida según el método elegido. "
              "Debe confirmarse con Riverflow para NYA.")
+    curve_choice = st.sidebar.selectbox(
+        "Lectura de curva H–Q", ["Puntos visibles de la imagen · aproximados",
+                                   "Solo 2 puntos rotulados · interpolación lineal"],
+        help="La imagen contiene puntos intermedios sin tabla numérica. Su digitalización es aproximada; "
+             "los puntos rotulados de 4 y 10 ft son exactos y no se extrapola fuera de ellos.")
+    curve_mode = "photo" if curve_choice.startswith("Puntos") else "anchors"
     speed_pct = st.sidebar.slider("Velocidad del variador (%)", 50, 100, 100, 1,
                                   help="Q proporcional a RPM es una aproximación; la curva H–Q real determina el caudal.")
     transfer_pct = st.sidebar.slider(
@@ -379,7 +399,8 @@ def main():
             module_head_full_speed_ft=local_head_ft,
             speed_fraction=speed_pct / 100, transfer_fraction=transfer_pct / 100,
             calm_zone_width_m=calm_width_m, filtration_turnover_h=turnover_h,
-            manning_n_current=manning_current, manning_n_calm=manning_calm,
+            floor_manning_n=floor_n, wall_manning_n_current=wall_n_current,
+            wall_manning_n_calm=wall_n_calm, curve_mode=curve_mode,
             module_chainages_m=manual_positions)
     except ValueError as exc:
         st.error(str(exc))
@@ -393,7 +414,8 @@ def main():
             st.warning("Unidades manuales en zonas calmas: " + ", ".join(map(str, calm_positions)) +
                        ". Compruebe que no alteren las entradas a playa.")
 
-    st.info("El caudal por Riverflow proviene de dos puntos rotulados de la curva H–Q recibida. "
+    st.info("El caudal por Riverflow proviene de la curva H–Q recibida: los dos extremos rotulados "
+            "son datos exactos y los puntos intermedios leídos de la imagen son aproximados. "
             "La TDH local y la transferencia longitudinal son hipótesis editables: el caudal de las "
             "bombas no equivale automáticamente a circulación neta del río. La vuelta es una "
             "estimación hasta verificar las pérdidas locales y la circulación con Riverflow o CFD.")
@@ -457,31 +479,36 @@ def main():
             f"4. **Tiempo de vuelta:** volumen ÷ circulación equivalente = "
             f"{plan.estimated_lap_min:.1f} minutos, frente a la meta de "
             f"{target_lap_min:.1f} minutos.\n"
-            f"5. **Resistencia:** Manning n={manning_current:.3f} en el canal de corriente "
-            f"y {manning_calm:.3f} en playa produce {plan.channel_friction_head_m:.3f} m "
-            "de pérdida calculada para el canal; no es la TDH del circuito local de las bombas."
+            f"5. **Resistencia:** piso n={floor_n:.3f}; paredes n={wall_n_current:.3f} "
+            f"en corriente y {wall_n_calm:.3f} en playa. El n compuesto cambia con el ancho "
+            f"del DXF y produce {plan.channel_friction_head_m:.3f} m de pérdida calculada "
+            "para el canal; no es la TDH del circuito local de las bombas."
         )
         st.info("La simulación es un escenario de fase 1, no una predicción validada de velocidad "
                 "del agua ni una certificación de seguridad. El porcentaje de transferencia y la TDH "
                 "local requieren un diseño hidráulico por estación y mediciones o CFD.")
-        st.markdown("**Faltan para cerrar el diseño:** perfiles y cotas de instalación NYA, "
-                    "diámetros/longitudes de succión y descarga, pérdidas de boquilla, curva completa "
-                    "con variador, prueba de circulación y diseño sanitario independiente.")
+        st.markdown("**Referencia ya recibida:** plano de montaje y curva H–Q en imagen. "
+                    "**Faltan para cerrar el diseño NYA:** cotas y recorridos reales por estación, "
+                    "pérdidas de succión/descarga, curvas a velocidades parciales o datos eléctricos "
+                    "certificados, prueba de circulación o CFD y diseño sanitario independiente.")
 
     with tab_hydraulic:
         st.subheader("Fricción del canal · Manning")
         m1, m2, m3, m4 = st.columns(4)
-        m1.metric("n corriente / playa", f"{manning_current:.3f} / {manning_calm:.3f}")
-        m2.metric("Pérdida canal · escenario", f"{plan.channel_friction_head_m:.2f} m")
-        m3.metric("Pérdida canal · meta", f"{plan.target_channel_friction_head_m:.2f} m")
+        m1.metric("n compuesto local mín–máx", f"{min(plan.station_manning_n):.3f}–{max(plan.station_manning_n):.3f}",
+                  help="Piso y dos paredes ponderados por perímetro mojado en cada sección rectangular.")
+        m2.metric("Pérdida canal · escenario", f"{plan.channel_friction_head_m:.3f} m")
+        m3.metric("Pérdida canal · meta", f"{plan.target_channel_friction_head_m:.3f} m")
         m4.metric("Froude equivalente máx.", f"{plan.max_froude:.2f}")
         st.plotly_chart(make_friction_profile(model, plan), width="stretch")
         st.caption("Se calcula la pendiente de fricción de Manning en cada tramo del DXF con "
-                   "ancho local, profundidad y circulación longitudinal equivalente. Es un diagnóstico "
+                   "ancho local, profundidad, piso liso y paredes con el acabado propuesto. El n "
+                   "compuesto se pondera por perímetro mojado según HEC-RAS. Es un diagnóstico "
                    "de resistencia del canal; NO es la TDH de la bomba Riverflow ni una validación del "
                    "punto de operación. Cambiar n actualiza estas pérdidas, pero no fuerza artificialmente "
                    "otro tiempo de vuelta mientras falte calibrar cómo el impulso de los módulos se "
                    "transmite a la corriente.")
+        st.markdown("[Base técnica del n compuesto (HEC-RAS)](https://www.hec.usace.army.mil/confluence/rasdocs/ras1dtechref/6.4/theoretical-basis-for-one-dimensional-and-two-dimensional-hydrodynamic-calculations/1d-steady-flow-water-surface-profiles/composite-manning-s-n-for-the-main-channel)")
         q1, q2 = st.columns(2)
         q1.metric("Tiempo en canal de corriente", f"{plan.current_lap_min:.1f} min")
         q2.metric("Tiempo en entradas a playa", f"{plan.calm_lap_min:.1f} min")
@@ -489,9 +516,16 @@ def main():
                    "la profundidad, las unidades activas y el porcentaje de transferencia supuesto.")
         curve_heads = [4.0 + i * 0.1 for i in range(61)]
         curve = go.Figure()
-        curve.add_trace(go.Scatter(x=[riverflow_flow_at_head_ft(h) for h in curve_heads],
-                                   y=curve_heads, mode="lines", name="Interpolación entre anclas",
+        curve.add_trace(go.Scatter(x=[riverflow_flow_at_head_ft(h, "photo") for h in curve_heads],
+                                   y=curve_heads, mode="lines", name="Imagen · lectura aproximada",
                                    line=dict(color="#2563eb", width=3)))
+        curve.add_trace(go.Scatter(x=[riverflow_flow_at_head_ft(h, "anchors") for h in curve_heads],
+                                   y=curve_heads, mode="lines", name="Dos anclas · recta",
+                                   line=dict(color="#94a3b8", width=2, dash="dash")))
+        curve.add_trace(go.Scatter(
+            x=[gpm * US_GPM_TO_M3_H for _, gpm in RIVERFLOW_DIGITIZED_POINTS],
+            y=[head for head, _ in RIVERFLOW_DIGITIZED_POINTS], mode="markers",
+            name="Puntos leídos", marker=dict(size=6, color="#2563eb")))
         curve.add_trace(go.Scatter(x=[plan.module_flow_full_speed_m3_h], y=[local_head_ft],
                                    mode="markers", name="Escenario seleccionado",
                                    marker=dict(size=12, color="#ea580c")))
@@ -499,9 +533,10 @@ def main():
                             xaxis_title="Caudal por unidad a plena velocidad (m³/h)",
                             yaxis_title="TDH local estimada (ft)")
         st.plotly_chart(curve, width="stretch")
-        st.caption("Curva recibida: 2,440 US GPM a 4 ft y 1,220 US GPM a 10 ft. "
-                   "La línea entre esos puntos es interpolación de planificación, no una curva "
-                   "certificada digitalizada. Fuera de 4–10 ft no se extrapola. "
+        st.caption("Curva recibida: 2,440 US GPM a 4 ft y 1,220 US GPM a 10 ft son "
+                   "puntos rotulados. Los puntos intermedios se estimaron visualmente del JPG, "
+                   "no de una tabla certificada; se puede comparar con la recta entre anclas. "
+                   "Fuera de 4–10 ft no se extrapola. "
                    "El punto de operación real requiere cruzar la curva de la bomba con la curva del circuito local.")
         st.plotly_chart(make_profile(model, plan), width="stretch")
         h1, h2, h3 = st.columns(3)
@@ -522,10 +557,10 @@ def main():
             st.dataframe([
                 {"Dato editable": "DXF, longitud y profundidad", "Afecta": "Volumen, áreas, velocidades, vuelta, fricción y filtración",
                  "Estado": "Geometría derivada del plano; escala y profundidad por confirmar"},
-                {"Dato editable": "Manning de corriente y playa", "Afecta": "Pérdida por fricción del canal y gráfica acumulada",
-                 "Estado": "No modifica aún la vuelta; falta acoplamiento de impulso/calibración"},
+                {"Dato editable": "Acabado y Manning de piso/paredes", "Afecta": "n compuesto local, fricción del canal y gráfica acumulada",
+                 "Estado": "Escenarios de material; no modifican aún la vuelta sin acoplamiento de impulso"},
                 {"Dato editable": "TDH local estimada", "Afecta": "Q por bomba, Q total, vuelta, velocidades y unidades requeridas",
-                 "Estado": "Curva H–Q interpolada entre dos anclas; no es un punto instalado"},
+                 "Estado": "Curva H–Q desde JPG aproximado o dos anclas; no es un punto instalado"},
                 {"Dato editable": "Variador y transferencia", "Afecta": "Circulación equivalente, vuelta, velocidades y fricción",
                  "Estado": "Aproximaciones; la transferencia no ha sido medida"},
                 {"Dato editable": "Ubicación y tipo de salida", "Afecta": "Plano, distancias y listado de equipos",
@@ -563,6 +598,9 @@ def main():
         st.info("Los módulos Riverflow impulsan la corriente, pero su descarga local no se cuenta "
                 "como caudal filtrado. El recambio se calcula solo con el flujo que realmente pasa "
                 "por el sistema de tratamiento: Q = volumen / horas de recambio.")
+        st.caption("Se mantienen 4 horas como hipótesis inicial editable, no como aprobación sanitaria "
+                   "para Liberia. El volumen definitivo debe incluir también el tanque de compensación "
+                   "si forma parte del circuito de tratamiento.")
         candidate_rate = st.number_input("Tasa de filtración de prueba (m/h)", 1.0, 60.0,
                                           20.0, 1.0,
                                           help="Hipótesis para comparar áreas, NO una recomendación de diseño ni un límite normativo. La tasa final depende del tipo y fabricante del filtro.")
@@ -585,9 +623,27 @@ def main():
                                      xaxis_title="Tiempo de recambio supuesto (h)",
                                      yaxis_title="Caudal filtrado necesario (m³/h)")
         st.plotly_chart(turnover_chart, width="stretch")
-        st.warning("Pendientes: norma sanitaria aplicable en Liberia, selección de filtros y bombas, "
-                   "desinfección, control de pH, balance de agua, retrolavado, tanque de compensación "
-                   "y caudal medido. La tasa de filtración de prueba no valida ningún equipo.")
+        st.markdown("**Equipos a prever para la hipótesis de 4 horas**")
+        st.dataframe([
+            {"Componente": "Bombas de recirculación independientes",
+             "Criterio de fase 1": f"Caudal conjunto filtrado ≥ {plan.filtration_flow_m3_h:,.0f} m³/h a la TDH de la planta",
+             "Pendiente": "Curva H–Q, pérdidas y redundancia"},
+            {"Componente": "Filtros",
+             "Criterio de fase 1": f"Área total ilustrativa {total_filter_area:,.1f} m² con {candidate_rate:.0f} m/h",
+             "Pendiente": "Tipo, tasa admisible y retrolavado según fabricante"},
+            {"Componente": "Desinfección y control de pH",
+             "Criterio de fase 1": "Dosificación y medición continuas",
+             "Pendiente": "Demanda química, tecnología y diseño sanitario"},
+            {"Componente": "Tanque de compensación y retornos",
+             "Criterio de fase 1": "Balance, captación y distribución sin zonas muertas",
+             "Pendiente": "Volumen, reboses y perfil de niveles"},
+            {"Componente": "Instrumentación y descarga",
+             "Criterio de fase 1": "Medidor de caudal filtrado, presiones y manejo de retrolavado",
+             "Pendiente": "Destino autorizado, alarmas y operación"},
+        ], width="stretch", hide_index=True)
+        st.warning("La tasa de filtración de prueba no valida filtros ni permite fijar su cantidad final. "
+                   "Confirmar calidad y capacidad del pozo, norma sanitaria aplicable en Liberia, "
+                   "aforo máximo y diseño de la planta de tratamiento con profesionales responsables.")
         st.markdown("Como referencia internacional, el [MAHC 2024 del CDC](https://www.cdc.gov/model-aquatic-health-code/media/pdfs/2024/11/5th-Ed-MAHC-Code-508.pdf) "
                     "define el recambio por el agua que atraviesa filtración y excluye el caudal "
                     "de funciones acuáticas sin filtrar. Es guía, no norma costarricense aplicable automáticamente.")
@@ -608,16 +664,20 @@ def main():
         st.markdown("**Infraestructura prevista**")
         st.markdown(
             "- **Estaciones mecánicas locales:** base o bóveda accesible para bomba y motor, "
-            "succión protegida, descarga, válvulas, drenaje y ventilación según Riverflow.\n"
+            "dos tomas de succión protegidas según el plano de referencia, descarga, "
+            "válvulas, elevación, drenaje y ventilación según Riverflow.\n"
             "- **Área eléctrica protegida:** tableros, variadores ABB, protecciones y control; "
             "alimentación y demanda por definir con el ingeniero eléctrico.\n"
-            f"- **Planta de tratamiento independiente:** dimensionamiento preliminar "
-            f"{plan.filtration_flow_m3_h:,.0f} m³/h para un recambio de {turnover_h:.1f} h."
+            f"- **Planta de tratamiento independiente:** bombas, filtros, desinfección, "
+            f"control de pH, instrumentación, retrolavado y tanque de compensación; "
+            f"dimensionamiento preliminar {plan.filtration_flow_m3_h:,.0f} m³/h "
+            f"para un recambio supuesto de {turnover_h:.1f} h."
         )
         st.caption("Las unidades de reserva no aportan caudal al escenario. Su ubicación de almacenamiento "
                    "o instalación queda pendiente del plan de redundancia.")
         st.caption("El plano 'Espada Amenity' recibido de Riverflow muestra como referencia una bomba vertical, "
-                   "dos tomas de succión, descarga y requisitos de elevación/drenaje. Es otro proyecto: "
+                   "dos tomas de succión, piezas de tubería, descarga, variador y requisitos de "
+                   "elevación/drenaje. Ya se aprovecha como base de componentes; es otro proyecto: "
                    "sus cotas y disposición no se transfieren a NYA sin un plano específico aprobado.")
 
     with tab_references:
