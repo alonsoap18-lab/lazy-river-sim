@@ -976,9 +976,11 @@ def main():
                               0.0, 8.0, 2.0, 0.5,
                               help="Sensibilidad de la descarga, no fuerza certificada por Riverflow.")
         spread = st.slider("Longitud de influencia supuesta por unidad (m)", 4, 30, 12, 1)
-        run_pilot = st.checkbox("Ejecutar y comparar el ensayo 2D", value=False)
+        run_pilot = st.checkbox("Ejecutar y comparar el ensayo 2D", value=False,
+                                key="riverflow_momentum_run")
         refine_grid = st.checkbox("Comprobar estabilidad con una malla más fina", value=False,
-                                  help="Repite el ensayo con 128 × 17 celdas; puede tardar unos segundos.")
+                                  help="Repite el ensayo con 128 × 17 celdas; puede tardar unos segundos.",
+                                  key="riverflow_momentum_refine")
         if run_pilot:
             try:
                 pilot = compute_momentum_pilot(
