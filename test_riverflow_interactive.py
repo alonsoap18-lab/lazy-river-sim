@@ -39,13 +39,35 @@ def test_clockwise_fast_playback_is_kinematic_only():
                    plan.equivalent_channel_flow_m3_h)
 
 
+def test_scenario_maps_use_one_velocity_scale():
+    model = LazyRiverModel()
+    assert model.load_dxf("RECORRIDO.dxf") == []
+    model.build_centerline(target_length_m=536)
+    plans = [compute_riverflow_plan(model.stations, depth_m=1.2,
+                                    target_lap_min=40, active_modules=count)
+             for count in (19, 18)]
+    fields = [compute_field_2d(model.stations, plan, 1.2,
+                               model.geometry.scale_m_per_unit) for plan in plans]
+    common_range = (min(float(field.speed_m_s.min()) for field in fields),
+                    max(float(field.speed_m_s.max()) for field in fields))
+    figures = [make_map(model, plan, field=field, color_range=common_range)
+               for plan, field in zip(plans, fields)]
+    scales = [[trace.marker for trace in figure.data
+               if getattr(trace.marker, "showscale", False)] for figure in figures]
+    assert len(scales[0]) == len(scales[1]) == 1
+    assert scales[0][0].cmin == scales[1][0].cmin == common_range[0]
+    assert scales[0][0].cmax == scales[1][0].cmax == common_range[1]
+
+
 def test_separate_views_and_treatment_recalculate():
     app = AppTest.from_file("app.py", default_timeout=60).run()
     assert not app.exception and len(app.tabs) == 10
+
+
     next(item for item in app.radio if item.label == "Seleccionar modelo").set_value(
         "Riverflow · módulos locales")
     app.run()
-    assert not app.exception and len(app.tabs) == 7
+    assert not app.exception and len(app.tabs) == 10
     assert next(item for item in app.selectbox if item.label ==
                 "Acabado propuesto de paredes").value == "Piedra local impermeabilizada"
     assert next(item for item in app.selectbox if item.label ==
@@ -81,6 +103,13 @@ def test_separate_views_and_treatment_recalculate():
                       "Área total de filtración · hipótesis").value
     assert float(area_after.split()[0].replace(",", "")) > float(
         area_before.split()[0].replace(",", ""))
+    next(item for item in app.number_input if item.label ==
+         "Bombas de filtración activas para comparar").set_value(12)
+    app.run()
+    assert not app.exception
+    assert next(item for item in app.metric if item.label ==
+                "Bombas activas · escenario").value == "12"
+    assert any("Con 12 bombas activas" in item.value for item in app.info)
     next(item for item in app.radio if item.label == "Seleccionar modelo").set_value(
         "Modelo original · bombas y jets")
     app.run()

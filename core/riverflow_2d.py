@@ -46,6 +46,11 @@ def compute_field_2d(stations: Sequence[dict], plan: RiverflowPlan,
     s = np.linspace(0, length, longitudinal_cells + 1)
     eta = np.linspace(0, 1, lateral_cells + 1)
     widths = np.interp(s, source_s, [float(p["width_m"]) for p in stations])
+    # The field remains depth-averaged across each section. Its effective
+    # depth comes from the same wetted areas used by volume and Manning; the
+    # DXF does not identify which bank contains the beach slope.
+    areas = np.interp(s, source_s, plan.station_areas_m2)
+    effective_depths = areas / widths
     center_x = np.interp(s, source_s, [float(p["x"]) for p in stations])
     center_y = np.interp(s, source_s, [float(p["y"]) for p in stations])
     normal_x = np.interp(s, source_s, [float(p["normal_x"]) for p in stations])
@@ -71,14 +76,14 @@ def compute_field_2d(stations: Sequence[dict], plan: RiverflowPlan,
     # divergence(h*u,h*v)=0 and keep both banks impermeable (constant psi).
     dpsi_deta = q * (1 - 0.25 * np.cos(2 * pi * eta)[None, :]
                      + pi * bias[:, None] * np.cos(pi * eta)[None, :])
-    longitudinal = dpsi_deta / (depth_m * widths[:, None])
+    longitudinal = dpsi_deta / areas[:, None]
     dpsi_ds_eta = np.gradient(psi, s, axis=0)
     width_gradient = np.gradient(widths, s)
-    lateral = (-dpsi_ds_eta / depth_m
+    lateral = (-dpsi_ds_eta / effective_depths[:, None]
                + longitudinal * (eta - 0.5)[None, :] * width_gradient[:, None])
     speed = np.hypot(longitudinal, lateral)
     # Trapezoidal quadrature of the exact streamfunction boundary difference.
-    section_flow = np.trapezoid(longitudinal * depth_m * widths[:, None], eta, axis=1)
+    section_flow = np.trapezoid(longitudinal * areas[:, None], eta, axis=1)
     residual = float(np.max(np.abs(section_flow - q)) / q)
 
     lap_times = []

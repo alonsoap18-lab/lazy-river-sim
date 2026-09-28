@@ -118,6 +118,8 @@ class DXFLoader:
         if self.outer_polygon and self.inner_polygon:
             if self.inner_polygon.area >= self.outer_polygon.area:
                 issues.append("Inner polygon is larger than outer")
+            if not self.outer_polygon.contains(self.inner_polygon):
+                issues.append("El contorno interior debe estar completamente dentro del exterior")
         return issues
 
     def get_outer_coords(self) -> List[tuple]:

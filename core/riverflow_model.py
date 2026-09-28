@@ -13,6 +13,8 @@ from math import ceil, cos, inf, isfinite, radians, sqrt
 from statistics import median
 from typing import Optional, Sequence
 
+from core.beach_geometry import BeachGeometry
+
 
 US_GPM_TO_M3_H = 0.22712470704
 RIVERFLOW_RATED_GPM = 2440.0
@@ -99,6 +101,8 @@ class RiverflowPlan:
     max_current_distance_to_module_m: float
     station_velocities_m_s: tuple[float, ...]
     station_zones: tuple[str, ...]
+    station_areas_m2: tuple[float, ...]
+    station_wet_widths_m: tuple[float, ...]
 
 
 def scenario_channel_flow_m3_h(resistance_s2_m5: float, module_flow_m3_h: float,
@@ -150,6 +154,8 @@ def compute_riverflow_plan(
     curve_mode: str = "photo",
     module_chainages_m: Optional[Sequence[float]] = None,
     module_angles_deg: Optional[Sequence[float]] = None,
+    beach_geometry: Optional[BeachGeometry] = None,
+    module_flow_full_speed_override_m3_h: Optional[float] = None,
 ) -> RiverflowPlan:
     if len(stations) < 2:
         raise ValueError("El DXF debe producir al menos dos secciones de canal.")
@@ -160,7 +166,11 @@ def compute_riverflow_plan(
     if any(value is not None for value in surface_values):
         if any(value is None or not isfinite(value) or value <= 0 for value in surface_values):
             raise ValueError("Indique rugosidades positivas para piso y ambas zonas de pared.")
-    module_flow_full_speed_m3_h = riverflow_flow_at_head_ft(module_head_full_speed_ft, curve_mode)
+    module_flow_full_speed_m3_h = (riverflow_flow_at_head_ft(module_head_full_speed_ft, curve_mode)
+                                   if module_flow_full_speed_override_m3_h is None else
+                                   module_flow_full_speed_override_m3_h)
+    if not isfinite(module_flow_full_speed_m3_h) or module_flow_full_speed_m3_h <= 0:
+        raise ValueError("El caudal por unidad debe ser positivo y finito.")
     if active_modules < 1 or standby_modules < 0:
         raise ValueError("Debe existir al menos una unidad activa.")
     if not 0 < speed_fraction <= 1 or not 0 < transfer_fraction <= 1:
@@ -187,21 +197,39 @@ def compute_riverflow_plan(
         width_score = min(1.0, sqrt(reference_width / local_width))
         scores.append(width_score * cos(radians(angle)) ** 2)
     placement_effectiveness = sum(scores) / active_modules
-    station_manning = tuple(
-        composite_manning_n(float(station["width_m"]), depth_m, floor_manning_n,
-                            wall_manning_n_calm if zone == "calm" else wall_manning_n_current)
-        if floor_manning_n is not None else
-        (manning_n_calm if zone == "calm" else manning_n_current)
-        for station, zone in zip(stations, zones)
-    )
+    if beach_geometry is not None and len(beach_geometry.area_m2) != len(stations):
+        raise ValueError("La geometría de playa debe corresponder a las estaciones del DXF.")
+    section_areas = tuple(beach_geometry.area_m2 if beach_geometry is not None else
+                          (float(s["width_m"]) * depth_m for s in stations))
+    section_perimeters = tuple(beach_geometry.wetted_perimeter_m if beach_geometry is not None else
+                               (float(s["width_m"]) + 2 * depth_m for s in stations))
+    section_wet_widths = tuple(beach_geometry.wet_width_m if beach_geometry is not None else
+                               (float(s["width_m"]) for s in stations))
+    if any(a <= 0 or p <= 0 or w <= 0 for a, p, w in
+           zip(section_areas, section_perimeters, section_wet_widths)):
+        raise ValueError("Las secciones mojadas de playa deben ser positivas.")
+    if floor_manning_n is not None and beach_geometry is not None:
+        station_manning = tuple(
+            ((beach_geometry.floor_perimeter_m[i] * floor_manning_n ** 1.5 +
+              beach_geometry.wall_perimeter_m[i] *
+              (wall_manning_n_calm if zone == "calm" else wall_manning_n_current) ** 1.5)
+             / section_perimeters[i]) ** (2 / 3)
+            for i, zone in enumerate(zones))
+    else:
+        station_manning = tuple(
+            composite_manning_n(float(station["width_m"]), depth_m, floor_manning_n,
+                                wall_manning_n_calm if zone == "calm" else wall_manning_n_current)
+            if floor_manning_n is not None else
+            (manning_n_calm if zone == "calm" else manning_n_current)
+            for station, zone in zip(stations, zones))
     length_m = float(stations[-1]["chainage_m"])
     volume_m3 = 0.0
     calm_length_m = 0.0
-    for previous, current, zone in zip(stations[:-1], stations[1:], zones[:-1]):
+    for i, (previous, current, zone) in enumerate(zip(stations[:-1], stations[1:], zones[:-1])):
         ds = float(current["chainage_m"]) - float(previous["chainage_m"])
         if ds < 0:
             raise ValueError("Las estaciones del DXF deben estar ordenadas por recorrido.")
-        volume_m3 += ds * (float(previous["width_m"]) + float(current["width_m"])) * depth_m / 2
+        volume_m3 += ds * (section_areas[i] + section_areas[i + 1]) / 2
         if zone == "calm":
             calm_length_m += ds
 
@@ -216,9 +244,9 @@ def compute_riverflow_plan(
     resistance = 0.0
     for i, (previous, current) in enumerate(zip(stations[:-1], stations[1:])):
         ds = float(current["chainage_m"]) - float(previous["chainage_m"])
-        width = (float(previous["width_m"]) + float(current["width_m"])) / 2
-        area = width * depth_m
-        radius = area / (width + 2 * depth_m)
+        area = (section_areas[i] + section_areas[i + 1]) / 2
+        perimeter = (section_perimeters[i] + section_perimeters[i + 1]) / 2
+        radius = area / perimeter
         n = (station_manning[i] + station_manning[i + 1]) / 2
         resistance += ds * (n / (area * radius ** (2 / 3))) ** 2
     if resistance <= 0:
@@ -238,9 +266,9 @@ def compute_riverflow_plan(
     cumulative_friction = [0.0]
     for i, (previous, current, zone) in enumerate(zip(stations[:-1], stations[1:], zones[:-1])):
         ds = float(current["chainage_m"]) - float(previous["chainage_m"])
-        width = (float(previous["width_m"]) + float(current["width_m"])) / 2
-        area = width * depth_m
-        radius = area / (width + 2 * depth_m)
+        area = (section_areas[i] + section_areas[i + 1]) / 2
+        perimeter = (section_perimeters[i] + section_perimeters[i + 1]) / 2
+        radius = area / perimeter
         n = (station_manning[i] + station_manning[i + 1]) / 2
         # Manning friction slope Sf = (n Q / (A R^(2/3)))^2, Q in m³/s.
         friction = ds * (n * equivalent_flow_m3_h / 3600 / (area * radius ** (2 / 3))) ** 2
@@ -253,13 +281,12 @@ def compute_riverflow_plan(
             calm_lap_min += passage_min
         else:
             current_lap_min += passage_min
-    station_velocities = tuple(equivalent_flow_m3_h / 3600 / (float(s["width_m"]) * depth_m)
-                               if float(s["width_m"]) > 0 else 0.0 for s in stations)
+    station_velocities = tuple(equivalent_flow_m3_h / 3600 / area for area in section_areas)
     current_velocities = [velocity for velocity, zone in zip(station_velocities, zones)
                           if zone == "current"]
-    average_width = volume_m3 / (length_m * depth_m) if length_m > 0 else 0.0
-    equivalent_velocity = (equivalent_flow_m3_h / 3600 / (average_width * depth_m)
-                           if average_width > 0 else 0.0)
+    average_area = volume_m3 / length_m if length_m > 0 else 0.0
+    equivalent_velocity = (equivalent_flow_m3_h / 3600 / average_area
+                           if average_area > 0 else 0.0)
     module_useful_energy = (module_flow_full_speed_m3_h * speed_fraction / 3600
                             * pump_head_operating_m * transfer_fraction
                             * placement_effectiveness)
@@ -295,7 +322,8 @@ def compute_riverflow_plan(
         channel_friction_head_m=channel_friction_head_m,
         target_channel_friction_head_m=target_channel_friction_head_m,
         current_lap_min=current_lap_min, calm_lap_min=calm_lap_min,
-        max_froude=max(station_velocities) / sqrt(GRAVITY_M_S2 * depth_m),
+        max_froude=max(v / sqrt(GRAVITY_M_S2 * (a / w))
+                       for v, a, w in zip(station_velocities, section_areas, section_wet_widths)),
         cumulative_friction_head_m=tuple(cumulative_friction),
         required_active_modules=required_modules,
         active_motor_nameplate_hp=active_modules * RIVERFLOW_MOTOR_HP,
@@ -304,4 +332,6 @@ def compute_riverflow_plan(
         module_angles_deg=angles, placement_effectiveness=placement_effectiveness,
         max_current_distance_to_module_m=max(current_distances) if current_distances else 0.0,
         station_zones=zones,
+        station_areas_m2=section_areas,
+        station_wet_widths_m=section_wet_widths,
     )
