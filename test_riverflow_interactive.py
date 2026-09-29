@@ -38,6 +38,7 @@ def test_clockwise_fast_playback_is_kinematic_only():
     assert len(slow.frames) == len(fast.frames) == 72
     assert slow.layout.updatemenus[0].buttons[0].args[1]["frame"]["duration"] > fast.layout.updatemenus[0].buttons[0].args[1]["frame"]["duration"]
     assert any(trace.name == "Velocidad Q/A · mapa" for trace in fast.data)
+    assert any((trace.name or "").startswith("Personas con chaleco") for trace in fast.data)
     assert all(frame.traces == (len(fast.data) - 1,) for frame in fast.frames)
     heatmap = make_map(model, plan)
     plain = make_map(model, plan, show_velocity_heatmap=False)
@@ -82,6 +83,7 @@ def test_separate_views_and_treatment_recalculate():
         "Riverflow · módulos locales")
     app.run()
     assert not app.exception and len(app.tabs) == 12
+    assert app.tabs[0].label == "Hoja de decisión"
     assert any(tab.label == "Hoja de decisión" for tab in app.tabs)
     assert any(tab.label == "Planos e instalación" for tab in app.tabs)
     assert any(item.label == "Q requerido por filtros" for item in app.metric)
@@ -91,6 +93,8 @@ def test_separate_views_and_treatment_recalculate():
                 "Lectura de curva H–Q").value.startswith("Puntos visibles")
     friction_before = next(item for item in app.metric if item.label ==
                            "Pérdida canal · escenario").value
+    ideal_before = next(item for item in app.metric if item.label ==
+                        "Mínimo optimista de vuelta").value
     lap_before = next(item for item in app.metric if item.label ==
                       "Vuelta media V/Q").value
     next(item for item in app.selectbox if item.label ==
@@ -100,6 +104,9 @@ def test_separate_views_and_treatment_recalculate():
     friction_after = next(item for item in app.metric if item.label ==
                           "Pérdida canal · escenario").value
     assert float(friction_after.split()[0]) < float(friction_before.split()[0])
+    ideal_after = next(item for item in app.metric if item.label ==
+                       "Mínimo optimista de vuelta").value
+    assert float(ideal_after.split()[0]) < float(ideal_before.split()[0])
     lap_after = next(item for item in app.metric if item.label ==
                      "Vuelta media V/Q").value
     assert float(lap_after.split()[0]) < float(lap_before.split()[0])
@@ -110,6 +117,9 @@ def test_separate_views_and_treatment_recalculate():
     lap_angled = next(item for item in app.metric if item.label ==
                       "Vuelta media V/Q").value
     assert float(lap_angled.split()[0]) > float(lap_after.split()[0])
+    ideal_angled = next(item for item in app.metric if item.label ==
+                        "Mínimo optimista de vuelta").value
+    assert float(ideal_angled.split()[0]) > float(ideal_after.split()[0])
     filter_flow_before = next(item for item in app.metric if item.label ==
                               "Q requerido por filtros").value
     next(item for item in app.slider if item.label ==
@@ -119,6 +129,8 @@ def test_separate_views_and_treatment_recalculate():
     lap_more_energy = next(item for item in app.metric if item.label ==
                            "Vuelta media V/Q").value
     assert float(lap_more_energy.split()[0]) < float(lap_angled.split()[0])
+    assert next(item for item in app.metric if item.label ==
+                "Mínimo optimista de vuelta").value == ideal_angled
     assert next(item for item in app.metric if item.label ==
                 "Q requerido por filtros").value == filter_flow_before
     next(item for item in app.number_input if item.label ==

@@ -82,7 +82,20 @@ Es un **modelo preliminar de sensibilidad**, no diseño ejecutivo, CFD validado,
 
 ## 3. Qué hace cada pestaña
 
-### Plano 2D
+### Hoja de decisión (primera pestaña)
+
+Es el punto de partida recomendado. Distingue geometría y curva disponible de los
+resultados que todavía dependen del 2 % supuesto. La **comprobación de impulso
+ideal** no usa ese porcentaje: calcula el mayor impulso longitudinal posible si
+toda la TDH local se convirtiera en velocidad de descarga sin pérdidas y lo
+compara con el arrastre Manning a la meta. El «mínimo optimista de vuelta» es
+una cota favorable, **no** una predicción. Si ni ese límite llega a la meta,
+la configuración requiere revisión; si llega, no demuestra que la instalación
+real lo consiga. Tampoco evalúa seguridad de tomas, salidas o bañistas.
+El porcentaje de impulso ideal no es el mismo concepto que el 2 % de energía
+útil; no deben igualarse ni restarse.
+
+### Plano 2D · conceptual
 
 Muestra paredes del DXF, playa principal proporcional, bombas locales, tomas, descargas y un campo de velocidad coloreado. El primer gráfico de sección muestra la cota propuesta del fondo; las métricas comparan el volumen uniforme y el volumen con playa.
 
@@ -102,13 +115,21 @@ Presenta Manning compuesto por sección, fricción longitudinal, comparación co
 
 Incluye tiempos en canal de corriente y bahías, curvas H–Q, tiempos de tres carriles conceptuales y sensibilidad a distintos porcentajes de energía útil. Las «unidades para meta» son aritmética bajo estos supuestos, no una orden de compra. La tabla de trazabilidad explica qué salida depende de cada entrada.
 
-### Simulador rápido
+### Recorrido ilustrativo
 
-Reproduce una vuelta en sentido horario sobre el campo conceptual. **Velocidad de reproducción** (60×, 120×, 300× o 600×) cambia solamente cuán rápido se ve la animación: no altera RPM, Q ni el tiempo físico calculado. El flotador no es una persona real ni evalúa seguridad.
+Reproduce una vuelta en sentido horario sobre el campo conceptual. Los puntos
+representan **personas con chaleco salvavidas o barra de espuma que se dejan
+llevar pasivamente**; no flotadores independientes. No se modelan patadas,
+braceo, resistencia corporal, viento ni interacción entre personas. **Velocidad
+de reproducción** (60×, 120×, 300× o 600×) cambia solo la animación: no altera
+RPM, Q ni tiempo físico. No evalúa seguridad.
 
-### Piloto 2D · momento
+### Ensayo 2D · dependiente del 2 %
 
-Ensayo independiente del mapa principal. Hereda el mismo Q longitudinal y prueba reparto lateral con advección, mezcla y arrastre Manning linealizado. **No** recalcula la cantidad de bombas ni resuelve CFD completo.
+Ensayo separado del mapa principal. **Hereda el Q longitudinal calculado con el
+2 % supuesto**, por lo que no verifica ese porcentaje. Prueba reparto lateral
+con advección, mezcla y arrastre Manning linealizado. **No** recalcula la
+cantidad de bombas ni resuelve CFD completo.
 
 | Control | Significado |
 |---|---|
@@ -157,6 +178,10 @@ La **matriz de sensibilidad** (activar casilla) cruza tres cantidades de unidade
 ### Hoja de decisión
 
 Reúne en una tabla y una gráfica tres lecturas del **mismo escenario de geometría, unidades, orientación, variador, circuito local, Manning y filtración**: conservadora, configuración actual y favorable. No son predicciones probabilísticas. La conservadora usa la mitad de la fracción de energía útil ingresada; la favorable usa el doble. La configuración actual reproduce exactamente los resultados principales de la app. Para variar K y RPM se usa la matriz de la pestaña «Escenarios»; la hoja principal los mantiene fijos, evitando extrapolar la curva al formar estos tres casos.
+
+El límite adicional de impulso ideal no sustituye esos tres escenarios ni
+calibra el 2 %. Solo permite descartar una meta físicamente imposible bajo sus
+supuestos optimistas; un resultado favorable no autoriza compras.
 
 La tabla distingue **Q descarga local**, **corriente longitudinal**, **vuelta volumétrica V/Q** y **vuelta de la trayectoria más lenta 2D**. Si el circuito actual no tiene un punto dentro de la curva, la app detiene el cálculo antes de la hoja en vez de extrapolar. «Meta alcanzada bajo hipótesis» **no** es aprobación de compra ni garantía de 40 minutos.
 

@@ -19,6 +19,7 @@ from core.geometry_audit import audit_geometry
 from core.riverflow_2d import compute_field_2d
 from core.riverflow_decision import consistency_checks, evaluate_decision_cases
 from core.riverflow_momentum_pilot import compute_momentum_pilot
+from core.riverflow_momentum_bound import compute_momentum_bound
 from core.riverflow_envelope import evaluate_envelope
 from core.riverflow_local_circuit import (LocalCircuit, PVC_12_SCH40_REFERENCE_ID_M,
                                           circuit_head, solve_local_circuit)
@@ -422,7 +423,7 @@ def make_fast_simulation(model, plan, playback_multiplier, field=None):
                              y=[s["y"] for s in model.stations], mode="lines",
                              name="Centro del canal · horario",
                              line=dict(color="#334155", width=1)))
-    fig.add_trace(go.Scatter(x=x0, y=y0, mode="markers", name="Flotadores conceptuales",
+    fig.add_trace(go.Scatter(x=x0, y=y0, mode="markers", name="Personas con chaleco o barra de espuma · ilustración",
                              marker=dict(size=13, color="#f97316", line=dict(color="white", width=1))))
     rider_trace = len(fig.data) - 1
     frames = []
@@ -432,7 +433,7 @@ def make_fast_simulation(model, plan, playback_multiplier, field=None):
         frames.append(go.Frame(name=str(frame), data=[go.Scatter(x=xs, y=ys,
                            mode="markers", marker=dict(size=13, color="#f97316",
                                                        line=dict(color="white", width=1)),
-                           text=[f"Flotador {i+1}" for i in range(rider_count)],
+                           text=[f"Persona {i+1} · deriva pasiva supuesta" for i in range(rider_count)],
                            hovertemplate="%{text}<extra></extra>")], traces=[rider_trace]))
     fig.frames = frames
     fig.update_layout(height=540, margin=dict(l=10, r=10, t=20, b=10),
@@ -640,6 +641,9 @@ def main():
                                                    if local_point else None))
         field = compute_field_2d(model.stations, plan, depth_m,
                                  scale_m_per_unit=model.geometry.scale_m_per_unit)
+        perimeters = (beach_geometry.wetted_perimeter_m if beach_geometry is not None else
+                      tuple(float(s["width_m"]) + 2 * depth_m for s in model.stations))
+        momentum_bound = compute_momentum_bound(model.stations, plan, perimeters)
     except ValueError as exc:
         st.error(str(exc))
         st.stop()
@@ -691,10 +695,12 @@ def main():
     if "filtration_active_pumps" not in st.session_state:
         st.session_state["filtration_active_pumps"] = 6
 
-    (tab_map, tab_explain, tab_hydraulic, tab_fast, tab_momentum, tab_guided, tab_treatment,
-     tab_scenarios, tab_decision, tab_equipment, tab_plans, tab_references) = st.tabs(
-        ["Plano 2D", "Explicación", "Hidráulica", "Simulador rápido", "Piloto 2D · momento",
-         "Filtración guiada", "Filtración avanzada", "Escenarios", "Hoja de decisión",
+    (tab_decision, tab_map, tab_explain, tab_hydraulic, tab_fast, tab_momentum,
+     tab_guided, tab_treatment, tab_scenarios, tab_equipment, tab_plans,
+     tab_references) = st.tabs(
+        ["Hoja de decisión", "Plano 2D · conceptual", "Explicación", "Hidráulica",
+         "Recorrido ilustrativo", "Ensayo 2D · dependiente del 2 %",
+         "Filtración guiada", "Filtración avanzada", "Escenarios",
          "Equipos", "Planos e instalación", "Referencias"])
 
     with tab_map:
@@ -1006,16 +1012,17 @@ def main():
         p2.metric("Reproducción", f"{playback}×")
         p3.metric("Duración de un ciclo en pantalla", f"{field.lane_lap_min[1] * 60 / playback:.1f} s")
         st.plotly_chart(make_fast_simulation(model, plan, playback, field), width="stretch")
-        st.caption("Pulsa ▶ en la gráfica. Los colores y el flotador central utilizan el mismo "
-                   "campo 2D conceptual; la velocidad varía con ancho, margen y ubicación de "
-                   "módulos. No representan trayectorias medidas, turbulencia, "
-                   "remolinos, interacción entre usuarios ni CFD. La reproducción acelerada no "
-                   "modifica los resultados hidráulicos.")
+        st.caption("Pulsa ▶ en la gráfica. Los puntos ilustran personas que se dejan llevar "
+                   "con chaleco salvavidas o barra de espuma; no son flotadores independientes. "
+                   "El campo 2D conceptual cambia con ancho, margen y ubicación de módulos. "
+                   "No se modelan patadas, braceo, viento, interacción entre personas, "
+                   "remolinos ni CFD. La reproducción acelerada no modifica los resultados.")
 
     with tab_momentum:
         st.subheader("Ensayo 2D de momento longitudinal · separado del diseño base")
         st.warning("Es una prueba de sensibilidad, no CFD ni una predicción calibrada. "
-                   "Conserva el caudal longitudinal del escenario principal; NO calcula de nuevo "
+                   "Conserva el caudal longitudinal derivado del 2 % del escenario principal; "
+                   "NO verifica ese 2 % ni calcula de nuevo "
                    "el punto de operación, la cantidad de bombas ni velocidades seguras para bañistas.")
         st.caption("Resuelve advección longitudinal, mezcla lateral y arrastre Manning linealizado "
                    "en una malla cerrada. Una corrección de presión por sección conserva Q. "
@@ -1575,6 +1582,36 @@ def main():
 
     with tab_decision:
         st.subheader("Hoja de decisión · NYA / Riverflow")
+        st.info("Lectura rápida: la geometría y el volumen proceden del DXF y el perfil de playa "
+                "supuesto; el caudal de cada bomba usa la curva disponible y pérdidas locales "
+                "editables. Velocidades y vuelta siguen dependiendo del 2 % no medido. "
+                "El ensayo 2D hereda ese caudal y no lo valida.")
+        st.markdown("**Comprobación física independiente del 2 % · límite optimista**")
+        st.caption("Se compara el arrastre Manning a la vuelta objetivo con el máximo impulso "
+                   "ideal de las descargas. Supone que TODA la TDH local se transforma en "
+                   "velocidad de salida, sin pérdidas ni mezcla; no es CFD ni rendimiento real.")
+        mb1, mb2 = st.columns(2)
+        mb1.metric("Mínimo optimista de vuelta", f"{momentum_bound.optimistic_min_lap_min:.1f} min")
+        mb2.metric("Parte del impulso ideal necesaria para la meta",
+                   f"{momentum_bound.target_fraction_of_ideal:.1%}")
+        if momentum_bound.target_fraction_of_ideal > 1:
+            st.error("La meta exige más impulso que este máximo ideal bajo la geometría y "
+                     "Manning elegidos: revisar la configuración antes de considerarla.")
+        else:
+            st.warning(f"La meta exigiría al menos {momentum_bound.target_fraction_of_ideal:.1%} "
+                       "del impulso ideal. Estar por debajo de 100 % NO demuestra viabilidad: "
+                       "faltan pérdidas de boquilla, mezcla, curvas y comportamiento de personas.")
+        st.caption("Este límite no usa el 2 % y cambia con bombas, RPM, TDH local, ángulos, "
+                   "Manning, profundidad y geometría. El porcentaje de impulso ideal NO se "
+                   "compara directamente con el 2 % de energía: son magnitudes distintas. "
+                   "Las velocidades junto a tomas y "
+                   "descargas requieren un estudio de seguridad independiente.")
+        with st.expander("Ver fuerzas y fórmula del límite optimista"):
+            st.write(f"Impulso ideal de las descargas: {momentum_bound.ideal_thrust_n:,.0f} N. "
+                     f"Resistencia Manning a la meta: {momentum_bound.target_drag_n:,.0f} N. "
+                     "Se usa fuerza ideal por unidad = densidad × caudal de bomba × "
+                     "√(2g × TDH local) × cos(ángulo); la resistencia del canal se integra "
+                     "por secciones del DXF. Son fuerzas teóricas, no mediciones.")
         st.caption("Mismo DXF, profundidad, Manning, número y posición de unidades, RPM y horas de "
                    "filtración en los tres casos. Solo se varía la energía útil supuesta "
                    "(0,5× / 1× / 2×). Son pruebas ilustrativas, no límites medidos ni "
