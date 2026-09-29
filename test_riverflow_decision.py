@@ -27,7 +27,7 @@ def _scenario(*, depth=1.2, floor_n=.013, transfer=.02, turnover=4.0,
     field = compute_field_2d(stations, plan, depth)
     cases = evaluate_decision_cases(
         stations, current_plan=plan, current_field=field, depth_m=depth,
-        scale_m_per_unit=1, circuit=circuit, calm_zone_width_m=15,
+        scale_m_per_unit=1, calm_zone_width_m=15,
         floor_manning_n=floor_n, wall_manning_n_current=.025,
         wall_manning_n_calm=.025, filtration_turnover_h=turnover,
         beach_geometry=beach)
@@ -65,16 +65,15 @@ def test_filter_hours_do_not_change_propulsion_decision():
     assert isclose(longer_cases[1].slow_lap_min, cases[1].slow_lap_min)
 
 
-def test_local_circuit_and_speed_reach_decision_rows_without_extrapolation():
+def test_local_circuit_and_speed_reach_all_decision_rows():
     circuit = LocalCircuit(8, .303, 8, .303, 1, 1, 3)
     plan, _, cases = _scenario(circuit=circuit)
     assert cases[1].plan is plan
-    assert cases[0].k_factor == 1.25 and cases[2].k_factor == .75
+    assert all(case.plan is not None for case in cases)
+    assert all(isclose(case.plan.installed_operating_flow_m3_h,
+                       plan.installed_operating_flow_m3_h) for case in cases)
     for case in cases:
-        if case.plan is not None:
-            assert all(ok for _, ok in consistency_checks(case.plan, 4))
-        else:
-            assert case.error and "curva" in case.error.lower()
+        assert all(ok for _, ok in consistency_checks(case.plan, 4))
     slower, _, slower_cases = _scenario(circuit=circuit, speed=.8)
     assert slower.installed_operating_flow_m3_h < plan.installed_operating_flow_m3_h
     assert slower_cases[1].slow_lap_min > cases[1].slow_lap_min
@@ -84,5 +83,5 @@ if __name__ == "__main__":
     test_central_case_is_exactly_the_visible_scenario()
     test_energy_manning_geometry_and_count_reach_decision_rows()
     test_filter_hours_do_not_change_propulsion_decision()
-    test_local_circuit_and_speed_reach_decision_rows_without_extrapolation()
+    test_local_circuit_and_speed_reach_all_decision_rows()
     print("Riverflow decision checks passed")

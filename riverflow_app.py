@@ -1526,13 +1526,11 @@ def main():
         st.subheader("Hoja de decisión · NYA / Riverflow")
         st.caption("Mismo DXF, profundidad, Manning, número y posición de unidades, RPM y horas de "
                    "filtración en los tres casos. Solo se varía la energía útil supuesta "
-                   "(0,5× / 1× / 2×); con circuito local, también los K de tomas, accesorios "
-                   "y salida (125% / 100% / 75%). Estas amplitudes son pruebas ilustrativas, "
-                   "no límites medidos ni probabilidades.")
+                   "(0,5× / 1× / 2×). Son pruebas ilustrativas, no límites medidos ni "
+                   "probabilidades. Para variar K y RPM, use la matriz de «Escenarios».")
         cases = evaluate_decision_cases(
             model.stations, current_plan=plan, current_field=field,
             depth_m=depth_m, scale_m_per_unit=model.geometry.scale_m_per_unit,
-            circuit=(circuit if use_local_circuit else None),
             calm_zone_width_m=calm_width_m, floor_manning_n=floor_n,
             wall_manning_n_current=wall_n_current,
             wall_manning_n_calm=wall_n_calm, filtration_turnover_h=turnover_h,
@@ -1542,7 +1540,6 @@ def main():
             if case.plan is None:
                 decision_rows.append({
                     "Caso": case.name, "Energía útil supuesta (%)": round(transfer_pct * case.energy_factor, 2),
-                    "K relativo": f"{case.k_factor:.0%}" if case.k_factor is not None else "No aplica",
                     "Q descarga local (m³/h)": None, "Corriente longitudinal (m³/h)": None,
                     "Vuelta V/Q (min)": None, "Vuelta lenta 2D (min)": None,
                     "Lectura": "Sin punto dentro de la curva disponible"})
@@ -1551,7 +1548,6 @@ def main():
             decision_rows.append({
                 "Caso": case.name,
                 "Energía útil supuesta (%)": round(100 * case.plan.transfer_fraction, 2),
-                "K relativo": f"{case.k_factor:.0%}" if case.k_factor is not None else "No aplica",
                 "Q descarga local (m³/h)": round(case.plan.installed_operating_flow_m3_h),
                 "Corriente longitudinal (m³/h)": round(case.plan.equivalent_channel_flow_m3_h),
                 "Vuelta V/Q (min)": round(case.plan.estimated_lap_min, 1),
