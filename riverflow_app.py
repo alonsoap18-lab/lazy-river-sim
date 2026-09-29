@@ -17,6 +17,7 @@ from core.filtration import calculate_backwash, calculate_pipe_losses, evaluate_
 from core.filtration_catalog import screen_pump_families
 from core.geometry_audit import audit_geometry
 from core.riverflow_2d import compute_field_2d
+from core.riverflow_decision import consistency_checks, evaluate_decision_cases
 from core.riverflow_momentum_pilot import compute_momentum_pilot
 from core.riverflow_envelope import evaluate_envelope
 from core.riverflow_local_circuit import (LocalCircuit, PVC_12_SCH40_REFERENCE_ID_M,
@@ -640,9 +641,10 @@ def main():
         st.session_state["filtration_active_pumps"] = 6
 
     (tab_map, tab_explain, tab_hydraulic, tab_fast, tab_momentum, tab_guided, tab_treatment,
-     tab_scenarios, tab_equipment, tab_references) = st.tabs(
+     tab_scenarios, tab_decision, tab_equipment, tab_references) = st.tabs(
         ["Plano 2D", "Explicación", "Hidráulica", "Simulador rápido", "Piloto 2D · momento",
-         "Filtración guiada", "Filtración avanzada", "Escenarios", "Equipos", "Referencias"])
+         "Filtración guiada", "Filtración avanzada", "Escenarios", "Hoja de decisión",
+         "Equipos", "Referencias"])
 
     with tab_map:
         st.info("Circulación definida: sentido horario. El origen del recorrido es el punto inicial del DXF; "
@@ -1108,7 +1110,7 @@ def main():
             "Familia / modelo de referencia": item["family"].name + " · " + item["family"].examples,
             "Potencia de placa": item["family"].hp_range,
             "Caudal máximo de familia (m³/h)": (round(item["family"].published_max_m3_h)
-                                                  if item["family"].published_max_m3_h else "No tabulado"),
+                                                  if item["family"].published_max_m3_h else None),
             "Resultado preliminar": item["screening"],
         } for item in pump_options], width="stretch", hide_index=True)
         st.caption("Fichas oficiales: " + " · ".join(
@@ -1519,6 +1521,99 @@ def main():
                        "La potencia hidráulica es energía transmitida al agua, "
                        "NO consumo eléctrico ni HP de placa. Sin curva de potencia y "
                        "rendimiento a cada RPM, no se calculan kWh ni costo operativo.")
+
+    with tab_decision:
+        st.subheader("Hoja de decisión · NYA / Riverflow")
+        st.caption("Mismo DXF, profundidad, Manning, número y posición de unidades, RPM y horas de "
+                   "filtración en los tres casos. Solo se varía la energía útil supuesta "
+                   "(0,5× / 1× / 2×); con circuito local, también los K de tomas, accesorios "
+                   "y salida (125% / 100% / 75%). Estas amplitudes son pruebas ilustrativas, "
+                   "no límites medidos ni probabilidades.")
+        cases = evaluate_decision_cases(
+            model.stations, current_plan=plan, current_field=field,
+            depth_m=depth_m, scale_m_per_unit=model.geometry.scale_m_per_unit,
+            circuit=(circuit if use_local_circuit else None),
+            calm_zone_width_m=calm_width_m, floor_manning_n=floor_n,
+            wall_manning_n_current=wall_n_current,
+            wall_manning_n_calm=wall_n_calm, filtration_turnover_h=turnover_h,
+            beach_geometry=beach_geometry)
+        decision_rows = []
+        for case in cases:
+            if case.plan is None:
+                decision_rows.append({
+                    "Caso": case.name, "Energía útil supuesta (%)": round(transfer_pct * case.energy_factor, 2),
+                    "K relativo": f"{case.k_factor:.0%}" if case.k_factor is not None else "No aplica",
+                    "Q descarga local (m³/h)": None, "Corriente longitudinal (m³/h)": None,
+                    "Vuelta V/Q (min)": None, "Vuelta lenta 2D (min)": None,
+                    "Lectura": "Sin punto dentro de la curva disponible"})
+                continue
+            slow_lap = case.slow_lap_min
+            decision_rows.append({
+                "Caso": case.name,
+                "Energía útil supuesta (%)": round(100 * case.plan.transfer_fraction, 2),
+                "K relativo": f"{case.k_factor:.0%}" if case.k_factor is not None else "No aplica",
+                "Q descarga local (m³/h)": round(case.plan.installed_operating_flow_m3_h),
+                "Corriente longitudinal (m³/h)": round(case.plan.equivalent_channel_flow_m3_h),
+                "Vuelta V/Q (min)": round(case.plan.estimated_lap_min, 1),
+                "Vuelta lenta 2D (min)": round(slow_lap, 1),
+                "Lectura": ("Meta alcanzada bajo hipótesis" if slow_lap <= target_lap_min
+                            else "Meta no alcanzada bajo hipótesis")})
+        st.dataframe(decision_rows, width="stretch", hide_index=True)
+        for case in cases:
+            if case.error:
+                st.warning(f"{case.name}: {case.error}")
+        valid_cases = [case for case in cases if case.slow_lap_min is not None]
+        if valid_cases:
+            comparison = go.Figure()
+            comparison.add_trace(go.Bar(
+                x=[case.name for case in valid_cases],
+                y=[case.slow_lap_min for case in valid_cases],
+                marker_color=[{"Conservador": "#64748b", "Configuración actual": "#2563eb",
+                               "Favorable": "#0d9488"}[case.name] for case in valid_cases],
+                name="Trayectoria más lenta 2D"))
+            comparison.add_hline(y=target_lap_min, line_dash="dash", line_color="#b91c1c",
+                                 annotation_text=f"Meta {target_lap_min:.1f} min")
+            comparison.update_layout(height=310, margin=dict(l=15, r=15, t=25, b=25),
+                                     yaxis_title="Minutos por vuelta · escenario 2D",
+                                     showlegend=False)
+            st.plotly_chart(comparison, width="stretch")
+        st.caption("La descarga local de las unidades NO es la corriente longitudinal del canal. "
+                   "La trayectoria lenta proviene del campo 2D conceptual, no de CFD calibrado. "
+                   "Una meta alcanzada aquí no autoriza comprar equipos.")
+
+        st.markdown("**Tratamiento independiente del mismo escenario**")
+        d1, d2, d3, d4 = st.columns(4)
+        d1.metric("Volumen calculado", f"{plan.volume_m3:,.0f} m³")
+        d2.metric("Recirculación", f"{turnover_h:.1f} h")
+        d3.metric("Q requerido por filtros", f"{filtration.required_flow_m3_h:,.0f} m³/h")
+        d4.metric("Necesidad por bomba activa", f"{filtration.required_per_pump_m3_h:,.0f} m³/h")
+        st.write("Capacidad de bombas con filtro sucio: **" + filtration.pump_status +
+                 "** · contingencia N−1: **" + filtration.pump_n_minus_1_status +
+                 "** · filtros: **" + filtration.filter_status + "**.")
+        st.caption("'Dato requerido' significa que falta demostrar capacidad; no equivale a cero "
+                   "ni a aprobación. El agua de pozo solo repone pérdidas y llenado, "
+                   "no el caudal de recirculación.")
+
+        st.markdown("**Origen de los datos y límite de uso**")
+        st.dataframe([
+            {"Dato": "Longitud y anchos", "Origen": "DXF cargado y escala elegida",
+             "Uso": "Geometría preliminar; cotas sumergidas pendientes"},
+            {"Dato": "Curva local y motor de 10 HP", "Origen": "Imagen/ficha Riverflow",
+             "Uso": "Anclas publicadas; puntos intermedios y RPM parciales aproximados"},
+            {"Dato": "Manning, K, longitudes y energía útil", "Origen": "Entradas e hipótesis NYA",
+             "Uso": "Sensibilidad; no medición ni garantía de vuelta"},
+            {"Dato": "Capacidad de filtración", "Origen": "Fichas a TDH con filtro sucio, si se ingresan",
+             "Uso": "Sin curva comprobada, no cerrar selección ni N−1"},
+        ], width="stretch", hide_index=True)
+        st.markdown("**Comprobación de coherencia de esta configuración**")
+        checks = consistency_checks(plan, turnover_h)
+        st.dataframe([{"Relación": label, "Resultado": "Coincide" if ok else "Revisar cálculo"}
+                      for label, ok in checks], width="stretch", hide_index=True)
+        if all(ok for _, ok in checks):
+            st.info("Las cuatro relaciones aritméticas coinciden para los datos actuales. "
+                    "Esto comprueba consistencia interna, no exactitud física.")
+        else:
+            st.error("Hay una inconsistencia aritmética. No usar este escenario para decisiones.")
 
     with tab_equipment:
         st.subheader("Unidades de propulsión")

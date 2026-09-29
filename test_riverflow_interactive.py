@@ -67,7 +67,9 @@ def test_separate_views_and_treatment_recalculate():
     next(item for item in app.radio if item.label == "Seleccionar modelo").set_value(
         "Riverflow · módulos locales")
     app.run()
-    assert not app.exception and len(app.tabs) == 10
+    assert not app.exception and len(app.tabs) == 11
+    assert any(tab.label == "Hoja de decisión" for tab in app.tabs)
+    assert any(item.label == "Q requerido por filtros" for item in app.metric)
     assert next(item for item in app.selectbox if item.label ==
                 "Acabado propuesto de paredes").value == "Piedra local impermeabilizada"
     assert next(item for item in app.selectbox if item.label ==
@@ -93,6 +95,26 @@ def test_separate_views_and_treatment_recalculate():
     lap_angled = next(item for item in app.metric if item.label ==
                       "Vuelta media V/Q").value
     assert float(lap_angled.split()[0]) > float(lap_after.split()[0])
+    filter_flow_before = next(item for item in app.metric if item.label ==
+                              "Q requerido por filtros").value
+    next(item for item in app.slider if item.label ==
+         "Energía útil para mover el río (%)").set_value(4.0)
+    app.run()
+    assert not app.exception
+    lap_more_energy = next(item for item in app.metric if item.label ==
+                           "Vuelta media V/Q").value
+    assert float(lap_more_energy.split()[0]) < float(lap_angled.split()[0])
+    assert next(item for item in app.metric if item.label ==
+                "Q requerido por filtros").value == filter_flow_before
+    next(item for item in app.number_input if item.label ==
+         "Recirculación de filtración (h)").set_value(6.0)
+    app.run()
+    assert not app.exception
+    assert next(item for item in app.metric if item.label ==
+                "Vuelta media V/Q").value == lap_more_energy
+    assert float(next(item for item in app.metric if item.label ==
+                      "Q requerido por filtros").value.split()[0].replace(",", "")) < float(
+                          filter_flow_before.split()[0].replace(",", ""))
     area_before = next(item for item in app.metric if item.label ==
                        "Área total de filtración · hipótesis").value
     next(item for item in app.number_input if item.label ==
