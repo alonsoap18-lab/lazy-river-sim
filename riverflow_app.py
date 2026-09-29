@@ -36,6 +36,22 @@ from core.riverflow_model import (
 
 MODEL_VERSION = "riverflow-geometry-treatment-9"
 ASSET_DIR = os.path.join(os.path.dirname(__file__), "assets")
+RIVERFLOW_4FT_PLAN_URL = (
+    "https://riverflowpumps.com/wp-content/uploads/2023/06/"
+    "100716-Lazy-River-4ft-depth.pdf"
+)
+RIVERFLOW_NOZZLE_PLAN_URL = (
+    "https://riverflowpumps.com/wp-content/uploads/2023/06/"
+    "Nozzle-Installation-River.pdf"
+)
+RIVERFLOW_ELECTRICAL_GUIDE_URL = (
+    "https://riverflowpumps.com/wp-content/uploads/2023/06/"
+    "RF_ElectricalInstallationOnWebsite_08262022.pdf"
+)
+RIVERFLOW_3FT_PLAN_URL = (
+    "https://riverflowpumps.com/wp-content/uploads/2023/06/"
+    "022417-Lazy-River-3ft-depth.pdf"
+)
 
 
 @st.cache_resource(show_spinner="Leyendo recorrido DXF...")
@@ -280,12 +296,13 @@ def make_friction_profile(model, plan):
 
 
 def make_installation_schematic():
-    """Topology-only diagram; positions and pipe lengths are not design dimensions."""
+    """Manufacturer-inspired topology; no NYA dimensions or loss coefficients."""
     fig = go.Figure()
     fig.add_shape(type="rect", x0=0, y0=0, x1=10, y1=3,
                   fillcolor="#dbeafe", line=dict(color="#60a5fa"))
-    fig.add_trace(go.Scatter(x=[1.5, 1.5, 5, 7.5], y=[1.5, 3.3, 3.3, 1.5],
-                             mode="lines", name="Circuito local",
+    fig.add_trace(go.Scatter(x=[1.2, 3, None, 1.8, 3, None, 3, 5, 7.5],
+                             y=[1.5, 2.3, None, 1.5, 2.3, None, 2.3, 3.3, 1.5],
+                             mode="lines", name="Ramales → bomba → retorno",
                              line=dict(color="#64748b", width=4)))
     fig.add_trace(go.Scatter(x=[1.2, 1.8], y=[1.5, 1.5], mode="markers",
                              name="Toma doble protegida",
@@ -297,6 +314,12 @@ def make_installation_schematic():
                              marker=dict(color="#16a34a", size=19, symbol="triangle-up")))
     fig.add_annotation(x=9.4, y=1.5, ax=7.8, ay=1.5, text="Corriente propuesta",
                        showarrow=True, arrowhead=3, arrowcolor="#16a34a")
+    fig.add_annotation(x=1.8, y=0.9, text="2 tomas · ramales 10″ en plano 4 ft",
+                       showarrow=False)
+    fig.add_annotation(x=3.5, y=2.65, text="Colector · dimensiones NYA pendientes",
+                       showarrow=False)
+    fig.add_annotation(x=7.9, y=2.55, text="Retorno 12″ · boquilla 7 puertos",
+                       showarrow=False)
     fig.add_annotation(x=5, y=4.25, text="Variador y tableros en área eléctrica protegida",
                        showarrow=False)
     fig.add_annotation(x=5, y=0.4, text="Agua del río · sin cotas de NYA",
@@ -306,6 +329,34 @@ def make_installation_schematic():
                       yaxis=dict(visible=False, range=[-0.5, 4.6], scaleanchor="x"),
                       legend=dict(orientation="h", y=-0.08))
     return fig
+
+
+def documentation_calculation_audit(*, suction_length_m, discharge_length_m,
+                                    suction_k, discharge_k, outlet_k,
+                                    transfer_pct, nozzle_type):
+    """Expose source-to-calculation gaps without changing hydraulic outputs."""
+    return [
+        {"Tema": "Succión doble", "Lo que se calcula": "Un conducto equivalente de succión",
+         "Dato del plano": "Dos tomas y ramales nominales de 10″ hacia la bomba",
+         "Pendiente para NYA": "Longitud/diámetro interior de cada ramal y reparto de caudal"},
+        {"Tema": "Pérdidas del circuito", "Lo que se calcula":
+         f"Longitudes {suction_length_m:g}/{discharge_length_m:g} m; K {suction_k:g}/{discharge_k:g}/{outlet_k:g}",
+         "Dato del plano": "Topología y piezas de una instalación de referencia",
+         "Pendiente para NYA": "Trazado real, cotas y K verificables de piezas y boquilla"},
+        {"Tema": "Tipo de salida", "Lo que se calcula": f"{nozzle_type}: etiqueta; K de salida común",
+         "Dato del plano": "Orientación y montaje de la boquilla de 7 puertos",
+         "Pendiente para NYA": "Curva de pérdidas o geometría hidráulica de cada salida"},
+        {"Tema": "Impulso del río", "Lo que se calcula":
+         f"Acoplamiento efectivo supuesto: {transfer_pct:g}%",
+         "Dato del plano": "No ofrece velocidades medidas en un río comparable",
+         "Pendiente para NYA": "Calibración con mediciones o CFD contrastado"},
+        {"Tema": "Viabilidad de montaje", "Lo que se calcula": "No comprobada",
+         "Dato del plano": "Succión inundada, nivel de bomba y dos tomas",
+         "Pendiente para NYA": "Sección/cotas de cada estación y seguridad de captaciones"},
+        {"Tema": "Electricidad", "Lo que se calcula": "HP nominales, no kW consumidos",
+         "Dato del plano": "Motor, variador y necesidad de área protegida",
+         "Pendiente para NYA": "Potencia eléctrica a operación y diseño local de alimentación"},
+    ]
 
 
 def make_count_chart(plan):
@@ -641,10 +692,10 @@ def main():
         st.session_state["filtration_active_pumps"] = 6
 
     (tab_map, tab_explain, tab_hydraulic, tab_fast, tab_momentum, tab_guided, tab_treatment,
-     tab_scenarios, tab_decision, tab_equipment, tab_references) = st.tabs(
+     tab_scenarios, tab_decision, tab_equipment, tab_plans, tab_references) = st.tabs(
         ["Plano 2D", "Explicación", "Hidráulica", "Simulador rápido", "Piloto 2D · momento",
          "Filtración guiada", "Filtración avanzada", "Escenarios", "Hoja de decisión",
-         "Equipos", "Referencias"])
+         "Equipos", "Planos e instalación", "Referencias"])
 
     with tab_map:
         st.info("Circulación definida: sentido horario. El origen del recorrido es el punto inicial del DXF; "
@@ -1642,6 +1693,44 @@ def main():
                    "dos tomas de succión, piezas de tubería, descarga, variador y requisitos de "
                    "elevación/drenaje. Ya se aprovecha como base de componentes; es otro proyecto: "
                    "sus cotas y disposición no se transfieren a NYA sin un plano específico aprobado.")
+
+    with tab_plans:
+        st.subheader("Planos Riverflow · aplicación preliminar a NYA")
+        st.info("Los documentos son instalaciones de referencia del fabricante, no planos de construcción "
+                "aprobados para NYA. La geometría DXF y los resultados hidráulicos existentes no se "
+                "modifican por consultar esta sección.")
+        st.markdown("**1. Sistema de 4 ft (1,22 m) · referencia más próxima a la profundidad elegida**")
+        st.link_button("Abrir plano original de 4 ft y 7 puertos", RIVERFLOW_4FT_PLAN_URL)
+        st.plotly_chart(make_installation_schematic(), width="stretch", key="rf_plan_installation")
+        st.caption("Esquema propio, sin escala: las dos ramas de toma, colector, bomba, retorno y boquilla "
+                   "siguen la topología del plano. Los diámetros son nominales de esa referencia; las "
+                   "longitudes, cotas y pérdidas de NYA siguen sin definirse.")
+        st.markdown("**2. Boquilla de 7 puertos · orientación y montaje**")
+        st.link_button("Abrir plano original de boquilla", RIVERFLOW_NOZZLE_PLAN_URL)
+        st.caption("El documento ilustra orientación y posición de montaje. No publica un K hidráulico "
+                   "para comparar la salida de 7 puertos con el manifold de 3 puertos. Las cotas de "
+                   "montaje varían entre referencias; no se fijan automáticamente en NYA.")
+        st.markdown("**3. Instalación eléctrica · motor y variador**")
+        st.link_button("Abrir guía eléctrica original", RIVERFLOW_ELECTRICAL_GUIDE_URL)
+        st.caption("El variador requiere ubicación protegida y ventilada. Los esquemas eléctricos del "
+                   "fabricante no sustituyen la selección de alimentación, protecciones ni normativa "
+                   "aplicable al emplazamiento en Costa Rica; 10 HP de placa no son consumo medido.")
+        with st.expander("Comparativo: variante de 3 ft (0,91 m)"):
+            st.link_button("Abrir plano original de 3 ft", RIVERFLOW_3FT_PLAN_URL)
+            st.caption("Sirve para comparar disposición, no para adoptar sus cotas en el río de 1,2 m.")
+
+        st.subheader("Auditoría de cálculos que aún faltan")
+        st.dataframe(documentation_calculation_audit(
+            suction_length_m=suction_length, discharge_length_m=discharge_length,
+            suction_k=suction_k, discharge_k=discharge_k, outlet_k=outlet_k,
+            transfer_pct=transfer_pct, nozzle_type=nozzle_type,
+        ), width="stretch", hide_index=True)
+        st.warning("Los planos mejoran la definición de componentes y restricciones de montaje; no "
+                   "aportan longitudes NYA, coeficientes K, curva eléctrica o velocidades medidas. "
+                   "Por eso no se cambiaron el TDH, el 2% supuesto ni los tiempos de vuelta.")
+        st.caption("La filtración permanece como sistema separado. La prueba hidrostática publicada "
+                   "por Riverflow aplica a un circuito de propulsión abierto de baja presión; "
+                   "no valida la planta de tratamiento ni un circuito presurizado cerrado.")
 
     with tab_references:
         st.subheader("Auditoría de datos Riverflow usados en NYA")

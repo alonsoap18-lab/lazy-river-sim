@@ -166,6 +166,12 @@ Debajo se muestra el tratamiento como circuito independiente: volumen, horas de 
 
 Lista unidades RF-01, RF-02, etc., progresiva, caudal estimado, 10 HP de placa y tipo de salida. **Descargar listado CSV** exporta ese escenario. Resume unidades activas/de reserva e infraestructura por prever: estación mecánica local, área eléctrica protegida y planta de tratamiento separada. El plano Riverflow recibido es de otro proyecto, no es plano de construcción NYA.
 
+### Planos e instalación
+
+Abre los documentos originales publicados por Riverflow para una instalación de 4 ft con siete puertos, el montaje de la boquilla y la guía eléctrica. El plano de 3 ft aparece solo como comparativo. El esquema dentro de la app es propio, funcional y **no está a escala**; ninguna cota de esos ejemplos reemplaza un plano de NYA.
+
+La tabla **Auditoría de cálculos que aún faltan** muestra qué simplifica la app y qué dato falta para pasar a un cálculo verificable: dos ramas de succión, pérdidas y longitudes reales, efecto de la boquilla, acoplamiento de la corriente, viabilidad de montaje y demanda eléctrica. Sus cifras de longitudes, K, salida y porcentaje reflejan los controles actuales. Esta pestaña **no altera el DXF ni cambia por sí misma los resultados hidráulicos**.
+
 ### Referencias
 
 Audita qué viene de la foto/curva Riverflow, qué es interpolado y qué sigue sin publicar; compara hipótesis NYA con otros ríos sin inventar caudales ausentes. Incluye esquema de instalación y los documentos de referencia cargados. No transfiera cotas de esos planos a NYA sin revisar el sitio.

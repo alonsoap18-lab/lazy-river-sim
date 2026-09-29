@@ -7,7 +7,21 @@ from streamlit.testing.v1 import AppTest
 from core.orchestrator import LazyRiverModel
 from core.riverflow_2d import compute_field_2d
 from core.riverflow_model import compute_riverflow_plan
-from riverflow_app import make_fast_simulation, make_map, simulated_positions
+from riverflow_app import (documentation_calculation_audit, make_fast_simulation,
+                           make_map, simulated_positions)
+
+
+def test_documentation_audit_tracks_manual_hypotheses():
+    rows = documentation_calculation_audit(
+        suction_length_m=6, discharge_length_m=9,
+        suction_k=2, discharge_k=4, outlet_k=5,
+        transfer_pct=3, nozzle_type="7 puertos")
+    topics = {row["Tema"]: row for row in rows}
+    assert "6/9 m" in topics["Pérdidas del circuito"]["Lo que se calcula"]
+    assert "2/4/5" in topics["Pérdidas del circuito"]["Lo que se calcula"]
+    assert "3%" in topics["Impulso del río"]["Lo que se calcula"]
+    assert "7 puertos" in topics["Tipo de salida"]["Lo que se calcula"]
+    assert "Un conducto equivalente" in topics["Succión doble"]["Lo que se calcula"]
 
 
 def test_clockwise_fast_playback_is_kinematic_only():
@@ -67,8 +81,9 @@ def test_separate_views_and_treatment_recalculate():
     next(item for item in app.radio if item.label == "Seleccionar modelo").set_value(
         "Riverflow · módulos locales")
     app.run()
-    assert not app.exception and len(app.tabs) == 11
+    assert not app.exception and len(app.tabs) == 12
     assert any(tab.label == "Hoja de decisión" for tab in app.tabs)
+    assert any(tab.label == "Planos e instalación" for tab in app.tabs)
     assert any(item.label == "Q requerido por filtros" for item in app.metric)
     assert next(item for item in app.selectbox if item.label ==
                 "Acabado propuesto de paredes").value == "Piedra local impermeabilizada"
@@ -139,6 +154,7 @@ def test_separate_views_and_treatment_recalculate():
 
 
 if __name__ == "__main__":
+    test_documentation_audit_tracks_manual_hypotheses()
     test_clockwise_fast_playback_is_kinematic_only()
     test_separate_views_and_treatment_recalculate()
     print("Riverflow interactive checks passed")
