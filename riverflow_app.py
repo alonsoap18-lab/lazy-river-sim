@@ -1,6 +1,7 @@
 """Riverflow-focused Phase-1 Streamlit interface for the NYA DXF geometry."""
 
 import csv
+import hashlib
 import io
 import os
 from math import ceil
@@ -17,6 +18,7 @@ from core.filtration import calculate_backwash, calculate_pipe_losses, evaluate_
 from core.filtration_catalog import screen_pump_families
 from core.geometry_audit import audit_geometry
 from core.riverflow_2d import compute_field_2d
+from core.riverflow_cfd_preview import compute_cfd_preview
 from core.riverflow_decision import consistency_checks, evaluate_decision_cases
 from core.riverflow_momentum_pilot import compute_momentum_pilot
 from core.riverflow_momentum_bound import compute_momentum_bound
@@ -695,11 +697,12 @@ def main():
     if "filtration_active_pumps" not in st.session_state:
         st.session_state["filtration_active_pumps"] = 6
 
-    (tab_decision, tab_map, tab_explain, tab_hydraulic, tab_fast, tab_momentum,
+    (tab_decision, tab_map, tab_explain, tab_hydraulic, tab_fast, tab_momentum, tab_cfd,
      tab_guided, tab_treatment, tab_scenarios, tab_equipment, tab_plans,
      tab_references) = st.tabs(
         ["Hoja de decisión", "Plano 2D · conceptual", "Explicación", "Hidráulica",
          "Recorrido ilustrativo", "Ensayo 2D · dependiente del 2 %",
+         "Simulación 2D experimental",
          "Filtración guiada", "Filtración avanzada", "Escenarios",
          "Equipos", "Planos e instalación", "Referencias"])
 
@@ -1120,6 +1123,112 @@ def main():
         st.markdown("[Referencia: ecuaciones 2D completas y criterios de uso de HEC-RAS]"
                     "(https://www.hec.usace.army.mil/confluence/rasdocs/r2dum/6.6/running-a-model-with-2d-flow-areas/2d-computation-options-and-tolerances). "
                     "Este ensayo reducido no implementa esas ecuaciones completas.")
+
+    with tab_cfd:
+        st.subheader("Simulación hidráulica 2D · prueba experimental")
+        st.warning("No es CFD validado, una corriente estabilizada ni un cálculo de vuelta. "
+                   "El agua parte en reposo y el mapa muestra solo los minutos de arranque elegidos. "
+                   "No use estas velocidades para seguridad, construcción ni compra de unidades.")
+        st.caption("Usa el contorno DXF, las áreas y Manning del escenario actual, el caudal/TDH "
+                   "de la curva Riverflow y las posiciones y ángulos editados. La fracción de impulso "
+                   "es una hipótesis nueva de momento, NO el 2 % de energía del modelo principal. "
+                   "No se representan tomas emparejadas, boquillas reales, turbulencia ni pendiente "
+                   "lateral de playa; el fondo es uniforme dentro de cada sección.")
+        cx, cy, cz = st.columns(3)
+        cfd_impulse_pct = cx.slider(
+            "Impulso ideal que llega al agua · hipótesis (%)", 1, 100, 10, 1,
+            help="Fracción de Q·sqrt(2gH) aplicada como fuerza localizada. No está medida y no equivale al 2 % de energía.",
+            key="riverflow_cfd_impulse")
+        cfd_duration_min = cy.slider(
+            "Arranque simulado (min)", 1, 10, 5, 1,
+            help="Solo tiempo transitorio desde reposo; no es tiempo de vuelta ni estado permanente.",
+            key="riverflow_cfd_duration")
+        cfd_cell_m = cz.select_slider(
+            "Tamaño de celda (m)", [1.5, 2.0, 2.5, 3.0], value=2.5,
+            help="El DXF se rasteriza; comparar dos tamaños de celda antes de interpretar el patrón.",
+            key="riverflow_cfd_cell")
+        cfd_mixing = st.slider(
+            "Mezcla horizontal supuesta (m²/s)", 0.0, 0.5, 0.12, 0.02,
+            help="Coeficiente exploratorio de difusión; no medido en NYA.",
+            key="riverflow_cfd_mixing")
+        cfd_signature = (
+            hashlib.sha256(model.loader.domain_polygon.wkb).hexdigest(),
+            model.geometry.scale_m_per_unit,
+            tuple(plan.station_areas_m2), tuple(plan.station_manning_n),
+            tuple(plan.module_chainages_m), tuple(plan.module_angles_deg),
+            plan.module_flow_full_speed_m3_h, plan.module_head_full_speed_ft,
+            plan.speed_fraction, cfd_impulse_pct, cfd_duration_min,
+            cfd_cell_m, cfd_mixing)
+        if st.button("Ejecutar simulación 2D experimental", key="riverflow_cfd_run"):
+            try:
+                with st.spinner("Calculando la malla 2D del DXF…"):
+                    preview = compute_cfd_preview(
+                        model, plan, cell_m=cfd_cell_m,
+                        duration_s=cfd_duration_min * 60,
+                        impulse_fraction=cfd_impulse_pct / 100,
+                        mixing_m2_s=cfd_mixing)
+                st.session_state["riverflow_cfd_result"] = preview
+                st.session_state["riverflow_cfd_signature"] = cfd_signature
+            except ValueError as exc:
+                st.error(f"La prueba 2D no terminó: {exc}")
+        preview = st.session_state.get("riverflow_cfd_result")
+        if preview is None:
+            st.info("Pulse «Ejecutar» para generar el mapa; el cálculo puede tardar varios segundos. "
+                    "Esta prueba no altera los demás resultados.")
+        elif st.session_state.get("riverflow_cfd_signature") != cfd_signature:
+            st.warning("Cambió el DXF o un parámetro que afecta esta prueba. El resultado anterior "
+                       "se oculta para evitar mezclar escenarios; pulse «Ejecutar» de nuevo.")
+        else:
+            experimental_speed = preview.speed_m_s[preview.wet]
+            experimental_along = preview.along_m_s[preview.wet]
+            d1, d2, d3, d4 = st.columns(4)
+            d1.metric("Rapidez media · arranque", f"{float(np.mean(experimental_speed)):.3f} m/s")
+            d2.metric("Rapidez máxima de celda", f"{float(np.max(experimental_speed)):.3f} m/s")
+            d3.metric("Celdas con flujo inverso", f"{float(np.mean(experimental_along < -0.005)):.1%}")
+            d4.metric("Balance numérico de agua", f"{preview.water_balance_error_m3:.1e} m³")
+            st.caption(f"Tiempo físico desde reposo: {preview.duration_s / 60:.0f} min; "
+                       f"{preview.wet_cell_count:,} celdas mojadas; Courant máximo "
+                       f"{preview.max_courant:.2f}. Un balance numérico pequeño no valida "
+                       "el impulso, las boquillas ni el fondo real.")
+            color_max = max(float(np.max(experimental_speed)), float(np.max(field.speed_m_s)))
+            current_fig = make_map(model, plan, show_installation=False,
+                                   show_velocity_heatmap=True, field=field,
+                                   color_range=(0.0, color_max))
+            current_fig.update_layout(height=530)
+            experimental_fig = go.Figure()
+            experimental_fig.add_trace(go.Heatmap(
+                x=preview.x_dxf, y=preview.y_dxf,
+                z=np.where(preview.wet, preview.speed_m_s, np.nan),
+                colorscale="RdYlBu_r", zmin=0, zmax=color_max,
+                colorbar=dict(title="m/s"),
+                hovertemplate="Rapidez transitoria %{z:.3f} m/s<extra></extra>"))
+            for wall, label in ((model.loader.outer_wall, "Muro exterior DXF"),
+                                (model.loader.inner_wall, "Muro interior DXF")):
+                coordinates = list(wall.coords)
+                experimental_fig.add_trace(go.Scatter(
+                    x=[point[0] for point in coordinates],
+                    y=[point[1] for point in coordinates], mode="lines",
+                    line=dict(color="#334155", width=2), name=label))
+            experimental_fig.add_trace(go.Scatter(
+                x=preview.module_x_dxf, y=preview.module_y_dxf,
+                mode="markers", name="Descargas esquemáticas",
+                marker=dict(size=7, color="white",
+                            line=dict(color="#111827", width=1))))
+            experimental_fig.update_layout(
+                height=530, margin=dict(l=5, r=5, t=10, b=5),
+                xaxis=dict(visible=False), yaxis=dict(visible=False, scaleanchor="x"),
+                legend=dict(orientation="h", y=-0.08))
+            left_map, right_map = st.columns(2)
+            with left_map:
+                st.markdown("**Modelo conceptual actual · depende del 2 %**")
+                st.plotly_chart(current_fig, width="stretch")
+            with right_map:
+                st.markdown("**Prueba 2D · arranque desde reposo**")
+                st.plotly_chart(experimental_fig, width="stretch")
+            st.info("Ambos mapas usan la misma escala de colores, pero representan estados y "
+                    "supuestos distintos. La diferencia NO es una corrección del tiempo de vuelta. "
+                    "Para avanzar: emparejar tomas y descargas, definir su geometría, comprobar "
+                    "malla/tiempo y alcanzar una corriente sostenida.")
 
     with tab_treatment:
         st.subheader("Tratamiento de agua · circuito independiente")

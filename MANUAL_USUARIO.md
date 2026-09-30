@@ -142,6 +142,33 @@ cantidad de bombas ni resuelve CFD completo.
 
 El tiempo del piloto sigue un **carril de fracción lateral fija**; el mapa anterior sigue líneas de corriente conceptuales. Por eso una diferencia entre ambos tiempos **no** es un error aritmético automático ni una corrección validada.
 
+### Simulación 2D experimental
+
+Prueba numérica independiente que rasteriza el contorno DXF y calcula un
+**arranque transitorio desde agua en reposo** con conservación de agua y momento
+promediado en profundidad. Usa las áreas y Manning del escenario actual, el
+caudal/TDH estimado de cada Riverflow y las posiciones y orientaciones editadas.
+No utiliza el 2 % de energía útil para calcular el campo; en su lugar pide un
+**porcentaje supuesto de impulso ideal que llega al agua**. Estos porcentajes
+representan magnitudes diferentes y no se comparan entre sí.
+
+| Control | Significado |
+|---|---|
+| Impulso ideal que llega al agua (%) | Hipótesis de cuánto momento de descarga se transfiere al agua; no es dato Riverflow ni calibración NYA. |
+| Arranque simulado (min) | Minutos físicos desde reposo; no es tiempo de vuelta ni estado estacionario. |
+| Tamaño de celda (m) | Resolución de la malla. Un mapa que cambia mucho al refinarla no es numéricamente confiable. |
+| Mezcla horizontal (m²/s) | Difusión exploratoria; no está medida. |
+| Ejecutar simulación | Lanza el cálculo solo a petición para evitar demoras en cada edición. Si cambia cualquier entrada que afecta el resultado, la app oculta el mapa anterior hasta volver a ejecutar. |
+
+Muestra el mapa experimental y el conceptual actual **con la misma escala de
+colores**, pero no se deben restar directamente: uno es un arranque desde reposo
+y el otro es un escenario de corriente supuestamente sostenida. El balance de
+agua y Courant comprueban aspectos numéricos, **no** la realidad física. La
+simulación no representa tomas emparejadas, geometría de boquillas, pendiente
+lateral real de la playa, turbulencia resuelta ni movimiento de personas; no
+calcula vuelta, seguridad o selección de equipos. La hoja de decisión y los
+cálculos de filtración permanecen independientes de esta prueba.
+
 ### Filtración guiada
 
 Primer paso para entender el tratamiento sin cargar curvas. Presenta **volumen ÷ tiempo de tratamiento = Q filtración**. El único control propio es **Bombas de filtración activas para comparar**: divide el Q total entre bombas operativas y muestra la necesidad por bomba si una falla sin reemplazo. Ese segundo valor no demuestra que las restantes puedan subir su caudal.

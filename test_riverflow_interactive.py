@@ -82,9 +82,10 @@ def test_separate_views_and_treatment_recalculate():
     next(item for item in app.radio if item.label == "Seleccionar modelo").set_value(
         "Riverflow · módulos locales")
     app.run()
-    assert not app.exception and len(app.tabs) == 12
+    assert not app.exception and len(app.tabs) == 13
     assert app.tabs[0].label == "Hoja de decisión"
     assert any(tab.label == "Hoja de decisión" for tab in app.tabs)
+    assert any(tab.label == "Simulación 2D experimental" for tab in app.tabs)
     assert any(tab.label == "Planos e instalación" for tab in app.tabs)
     assert any(item.label == "Q requerido por filtros" for item in app.metric)
     assert next(item for item in app.selectbox if item.label ==
