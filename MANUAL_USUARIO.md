@@ -2,7 +2,7 @@
 
 **Versión documentada:** código revisado el 29 de septiembre de 2026; la hoja de decisión se incorpora con esta actualización.
 **Dirección:** https://lazy-river-sim-qdstdmhyadagfmdatkeat5.streamlit.app/
-**Proyecto base:** recorrido horario de 536 m, trazado del archivo `RECORRIDO.dxf`, profundidad inicial de 1,20 m. Todos estos valores pueden cambiarse como escenarios; no son planos aprobados.
+**Proyecto base:** recorrido antihorario de 536 m, trazado del archivo `RECORRIDO.dxf`, profundidad inicial de 1,20 m. Todos estos valores pueden cambiarse como escenarios; no son planos aprobados.
 
 ## 1. Qué hace el módulo Riverflow y qué no hace
 
@@ -17,7 +17,7 @@ Es un **modelo preliminar de sensibilidad**, no diseño ejecutivo, CFD validado,
 | Término | Significado | Unidad |
 |---|---|---|
 | DXF | Plano de los dos contornos del río; la capa esperada es `PAREDES`. | — |
-| Progresiva o *chainage* | Distancia desde el inicio del recorrido, aumentando en sentido horario. | m |
+| Progresiva o *chainage* | Distancia desde el inicio del recorrido, aumentando en sentido antihorario. | m |
 | Área de sección, A | Superficie transversal ocupada por agua. No es el área en planta. | m² |
 | Volumen, V | Agua estimada en el canal a la profundidad/propuesta de playa escogida. | m³ |
 | Caudal, Q | Volumen que circula por unidad de tiempo. | m³/h o m³/s |
@@ -66,7 +66,7 @@ Es un **modelo preliminar de sensibilidad**, no diseño ejecutivo, CFD validado,
 | **Energía útil para mover el río** | Fracción supuesta de potencia hidráulica que sostiene la corriente; base 2 %. | Es uno de los datos **más inciertos**. Cambia considerablemente Q longitudinal y vuelta. No proviene de Riverflow ni de medición NYA; siempre comparar varios valores. |
 | **Salida propuesta** | 7 puertos o manifold de 3 puertos. | Registra la opción en equipos. No recalcula pérdidas por sí sola; para ello editar K con fundamento. |
 | **Ubicación de unidades** | Automática o lista manual de progresivas en m. | La automática evita zonas clasificadas como calmas. La manual exige una posición por unidad y puede situarlas en una bahía; aparece aviso. Cambia el acoplamiento geométrico supuesto y el mapa. |
-| **Orientación de descargas** | Ángulo común o una lista de ángulos por unidad; 0° sigue el sentido horario. | Influye en eficacia propuesta y campo 2D; no reproduce el chorro físico real. Valores positivos apuntan hacia una margen según la convención del modelo. |
+| **Orientación de descargas** | Ángulo común o una lista de ángulos por unidad; 0° sigue el sentido antihorario. | Influye en eficacia propuesta y campo 2D; no reproduce el chorro físico real. Valores positivos apuntan hacia la margen exterior según la convención del modelo. |
 | **Recirculación de filtración** | Horas por volumen equivalente; base 4 h. | Q filtración = volumen/horas. No cambia el caudal Riverflow ni representa agua nueva del pozo. La elección sanitaria final debe confirmarse para Liberia. |
 
 ### Cómo leer el resumen Riverflow
@@ -117,7 +117,7 @@ Incluye tiempos en canal de corriente y bahías, curvas H–Q, tiempos de tres c
 
 ### Recorrido ilustrativo
 
-Reproduce una vuelta en sentido horario sobre el campo conceptual. Los puntos
+Reproduce una vuelta en sentido antihorario sobre el campo conceptual. Los puntos
 representan **personas con chaleco salvavidas o barra de espuma que se dejan
 llevar pasivamente**; no flotadores independientes. No se modelan patadas,
 braceo, resistencia corporal, viento ni interacción entre personas. **Velocidad

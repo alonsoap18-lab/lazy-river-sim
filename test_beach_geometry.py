@@ -19,8 +19,11 @@ def _stations():
 def test_main_beach_fits_dxf_and_keeps_other_bays_deep():
     model = _stations()
     profile = compute_beach_geometry(model.stations, 1.2)
-    assert 180 < profile.beach_start_m < 205
-    assert 250 < profile.beach_end_m < 320
+    assert isclose(model.stations[0]["width_m"],
+                   max(s["width_m"] for s in model.stations))
+    assert profile.beach_start_m > profile.beach_end_m  # crosses 536/0 m
+    assert 0 in profile.beach_indices
+    assert isclose(profile.area_m2[0], profile.area_m2[-1])
     assert 22 < profile.beach_max_extra_width_m < 23
     assert isclose(profile.first_slope, 0.02665, rel_tol=0.01)
     assert isclose(profile.ramp_slope, 0.06663, rel_tol=0.01)

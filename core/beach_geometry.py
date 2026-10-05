@@ -78,18 +78,27 @@ def compute_beach_geometry(stations: Sequence[dict], depth_m: float,
     widths = [float(s["width_m"]) for s in stations]
     current_widths = [w for w in widths if w < calm_width_m]
     reference_width = median(current_widths or widths)
-    runs = _wide_runs(stations, calm_width_m)
+    # The origin can lie inside the main beach. Join the wide segments on
+    # either side of the 0/L seam before selecting the physical bay.
+    unique_count = len(stations) - 1
+    runs = _wide_runs(stations[:unique_count], calm_width_m)
+    if len(runs) > 1 and runs[0][0] == 0 and runs[-1][-1] == unique_count - 1:
+        runs = [runs[-1] + runs[0], *runs[1:-1]]
     if not runs:
         raise ValueError("No existe un ensanchamiento de playa en el DXF.")
     widest_run = max(runs, key=lambda run: max(widths[i] for i in run))
     first, last = widest_run[0], widest_run[-1]
     # Extend into the tapered approaches until the extra width vanishes. This
     # keeps sectional area continuous at the calm-width classification edge.
-    while first > 0 and widths[first - 1] > reference_width:
-        first -= 1
-    while last + 1 < len(stations) and widths[last + 1] > reference_width:
-        last += 1
-    indices = tuple(range(first, last + 1))
+    selected = set(widest_run)
+    while len(selected) < unique_count and widths[(first - 1) % unique_count] > reference_width:
+        first = (first - 1) % unique_count
+        selected.add(first)
+    while len(selected) < unique_count and widths[(last + 1) % unique_count] > reference_width:
+        last = (last + 1) % unique_count
+        selected.add(last)
+    indices = tuple((first + step) % unique_count
+                    for step in range((last - first) % unique_count + 1))
     max_extra = max(widths[i] - reference_width for i in indices)
     first_length_max = max_extra * first_share
     ramp_length_max = max_extra * (1 - first_share)
@@ -137,6 +146,9 @@ def compute_beach_geometry(stations: Sequence[dict], depth_m: float,
         walls.append(wall)
         perimeters.append(floor + wall)
         wet_widths.append(wet_width)
+    # Last station duplicates station zero on this closed circuit.
+    areas[-1], perimeters[-1] = areas[0], perimeters[0]
+    floors[-1], walls[-1], wet_widths[-1] = floors[0], walls[0], wet_widths[0]
     return BeachGeometry(
         area_m2=tuple(areas), wetted_perimeter_m=tuple(perimeters),
         floor_perimeter_m=tuple(floors), wall_perimeter_m=tuple(walls),

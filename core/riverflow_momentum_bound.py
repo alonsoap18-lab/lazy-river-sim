@@ -47,7 +47,7 @@ def compute_momentum_bound(stations: Sequence[dict], plan: RiverflowPlan,
     directed_count = sum(max(0.0, cos(radians(angle))) for angle in plan.module_angles_deg)
     ideal_thrust = WATER_DENSITY_KG_M3 * per_module_q_m3_s * ideal_exit_speed * directed_count
     if ideal_thrust <= 0:
-        raise ValueError("Las descargas no aportan impulso en sentido horario.")
+        raise ValueError("Las descargas no aportan impulso en el sentido del recorrido.")
 
     # Integrate rho*g*A*Sf*ds with Manning's Sf=(n*q/(A*R^(2/3)))^2.
     # The coefficient is independent of the chosen 2% energy transfer.
@@ -55,7 +55,7 @@ def compute_momentum_bound(stations: Sequence[dict], plan: RiverflowPlan,
     for i, (start, end) in enumerate(zip(stations[:-1], stations[1:])):
         ds = float(end["chainage_m"]) - float(start["chainage_m"])
         if ds <= 0:
-            raise ValueError("Las estaciones deben avanzar en sentido horario.")
+            raise ValueError("Las estaciones deben avanzar en el sentido del recorrido.")
         area = (plan.station_areas_m2[i] + plan.station_areas_m2[i + 1]) / 2
         perimeter = (float(section_perimeters_m[i]) + float(section_perimeters_m[i + 1])) / 2
         manning = (plan.station_manning_n[i] + plan.station_manning_n[i + 1]) / 2

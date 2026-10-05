@@ -19,7 +19,8 @@ from core.filtration_catalog import screen_pump_families
 from core.geometry_audit import audit_geometry
 from core.riverflow_2d import compute_field_2d
 from core.riverflow_cfd_preview import compute_cfd_preview
-from core.riverflow_decision import consistency_checks, evaluate_decision_cases
+from core.riverflow_decision import (consistency_checks, evaluate_count_options,
+                                     evaluate_decision_cases)
 from core.riverflow_momentum_pilot import compute_momentum_pilot
 from core.riverflow_momentum_bound import compute_momentum_bound
 from core.riverflow_envelope import evaluate_envelope
@@ -37,7 +38,7 @@ from core.riverflow_model import (
 )
 
 
-MODEL_VERSION = "riverflow-geometry-treatment-9"
+MODEL_VERSION = "riverflow-geometry-treatment-11-beach-origin"
 ASSET_DIR = os.path.join(os.path.dirname(__file__), "assets")
 RIVERFLOW_4FT_PLAN_URL = (
     "https://riverflowpumps.com/wp-content/uploads/2023/06/"
@@ -170,6 +171,12 @@ def make_map(model, plan, show_installation=True, show_velocity_heatmap=True, fi
             fig.add_trace(go.Scatter(x=[p[0] for p in coordinates],
                                      y=[p[1] for p in coordinates], mode="lines",
                                      name=label, line=dict(color=color, width=2)))
+    fig.add_trace(go.Scatter(
+        x=[model.stations[0]["x"]], y=[model.stations[0]["y"]],
+        mode="markers", name="Inicio y fin · playa principal",
+        marker=dict(size=15, color="#be185d", symbol="star",
+                    line=dict(color="white", width=2)),
+        hovertemplate="Inicio/fin de vuelta · playa principal · 0/L<extra></extra>"))
     for zone, label, color in (("current", "Canal de corriente", "#2563eb"),
                                ("calm", "Entradas a playa / zona calma", "#86efac")) if not show_velocity_heatmap else ():
         xs, ys = [], []
@@ -198,7 +205,7 @@ def make_map(model, plan, show_installation=True, show_velocity_heatmap=True, fi
         ty = following["y"] - previous["y"]
         norm = (tx ** 2 + ty ** 2) ** 0.5 or 1.0
         tx, ty = tx / norm, ty / norm
-        nx, ny = -ty, tx
+        nx, ny = station["normal_x"], station["normal_y"]
         dx, dy = tx * np.cos(angle) + nx * np.sin(angle), ty * np.cos(angle) + ny * np.sin(angle)
         width = float(station["width_m"])
         px = station["x"] + nx * (width / 2 + 2) / scale
@@ -293,7 +300,7 @@ def make_friction_profile(model, plan):
                              y=plan.cumulative_friction_head_m, mode="lines",
                              name="Pérdida acumulada Manning", line=dict(color="#7c3aed", width=3)))
     fig.update_layout(height=280, margin=dict(l=20, r=20, t=20, b=25),
-                      xaxis_title="Recorrido horario desde origen DXF (m)",
+                      xaxis_title="Recorrido antihorario desde playa principal (m)",
                       yaxis_title="Pérdida acumulada de canal (m)")
     return fig
 
@@ -423,8 +430,14 @@ def make_fast_simulation(model, plan, playback_multiplier, field=None):
     add_velocity_areas(fig, model, plan, field)
     fig.add_trace(go.Scatter(x=[s["x"] for s in model.stations],
                              y=[s["y"] for s in model.stations], mode="lines",
-                             name="Centro del canal · horario",
+                             name="Centro del canal · antihorario",
                              line=dict(color="#334155", width=1)))
+    fig.add_trace(go.Scatter(
+        x=[model.stations[0]["x"]], y=[model.stations[0]["y"]],
+        mode="markers", name="Inicio y fin · playa principal",
+        marker=dict(size=16, color="#be185d", symbol="star",
+                    line=dict(color="white", width=2)),
+        hovertemplate="Inicio/fin de vuelta · playa principal<extra></extra>"))
     fig.add_trace(go.Scatter(x=x0, y=y0, mode="markers", name="Personas con chaleco o barra de espuma · ilustración",
                              marker=dict(size=13, color="#f97316", line=dict(color="white", width=1))))
     rider_trace = len(fig.data) - 1
@@ -472,7 +485,7 @@ def make_csv(plan, nozzle_type):
 def main():
     st.markdown("<h1 style='color:#2563eb;text-align:center'>Selvatura NYA · Lazy River / Riverflow</h1>",
                 unsafe_allow_html=True)
-    st.caption("Fase 1 · recorrido horario · geometría DXF y dimensionamiento conceptual de propulsión, filtración e infraestructura")
+    st.caption("Fase 1 · recorrido antihorario · geometría DXF y dimensionamiento conceptual de propulsión, filtración e infraestructura")
 
     st.sidebar.header("Diseño NYA desde DXF")
     uploaded = st.sidebar.file_uploader("Plano DXF (capa PAREDES)", type=["dxf"])
@@ -511,8 +524,8 @@ def main():
         st.stop()
     for issue in issues:
         st.warning(str(issue))
-    if signed_centerline_area(model.stations) >= 0:
-        st.error("No se pudo confirmar el sentido horario del DXF.")
+    if signed_centerline_area(model.stations) <= 0:
+        st.error("No se pudo confirmar el sentido antihorario del recorrido.")
         st.stop()
 
     st.sidebar.subheader("Perfil de la playa principal · anteproyecto")
@@ -598,9 +611,31 @@ def main():
                     if station["width_m"] < calm_width_m] or model.stations
         initial = [eligible[round((i + 0.5) * (len(eligible) - 1) / active_modules)]["chainage_m"]
                    for i in range(active_modules)]
+        old_key = f"riverflow_positions_{active_modules}"
+        previous_ccw_key = f"riverflow_positions_ccw_{active_modules}"
+        position_key = f"riverflow_positions_beach_{active_modules}"
+        origin = float(model.stations[0]["dxf_origin_chainage_m"])
+        if position_key not in st.session_state and previous_ccw_key in st.session_state:
+            try:
+                previous_positions = parse_chainages(st.session_state[previous_ccw_key],
+                                                     model.geometry.channel_length_m)
+                length = model.geometry.channel_length_m
+                st.session_state[position_key] = ", ".join(
+                    f"{(p - origin) % length:.1f}" for p in previous_positions)
+            except (ValueError, TypeError):
+                pass
+        if (old_key in st.session_state and position_key not in st.session_state):
+            try:
+                old_positions = parse_chainages(st.session_state[old_key],
+                                                 model.geometry.channel_length_m)
+                length = model.geometry.channel_length_m
+                st.session_state[position_key] = ", ".join(
+                    f"{((length - p) - origin) % length:.1f}" for p in old_positions)
+            except (ValueError, TypeError):
+                pass
         text = st.sidebar.text_area("Posición de cada unidad, separada por coma",
                                     value=", ".join(f"{x:.0f}" for x in initial),
-                                    key=f"riverflow_positions_{active_modules}", height=100)
+                                    key=position_key, height=100)
         try:
             manual_positions = parse_chainages(text, model.geometry.channel_length_m)
         except ValueError as exc:
@@ -608,7 +643,7 @@ def main():
             st.stop()
     angle_mode = st.sidebar.radio("Orientación de descargas",
                                   ["Todas alineadas", "Editar ángulos por unidad"],
-                                  help="0° sigue el recorrido horario; valores positivos apuntan hacia una margen. "
+                                  help="0° sigue el recorrido antihorario; valores positivos apuntan hacia la margen exterior. "
                                        "La penalización por ángulo es una hipótesis de escenario.")
     if angle_mode == "Todas alineadas":
         common_angle = st.sidebar.slider("Ángulo de descarga respecto al recorrido (°)",
@@ -697,18 +732,43 @@ def main():
     if "filtration_active_pumps" not in st.session_state:
         st.session_state["filtration_active_pumps"] = 6
 
-    (tab_decision, tab_map, tab_explain, tab_hydraulic, tab_fast, tab_momentum, tab_cfd,
-     tab_guided, tab_treatment, tab_scenarios, tab_equipment, tab_plans,
-     tab_references) = st.tabs(
-        ["Hoja de decisión", "Plano 2D · conceptual", "Explicación", "Hidráulica",
-         "Recorrido ilustrativo", "Ensayo 2D · dependiente del 2 %",
-         "Simulación 2D experimental",
-         "Filtración guiada", "Filtración avanzada", "Escenarios",
-         "Equipos", "Planos e instalación", "Referencias"])
+    # Navigation follows the decisions this preliminary model can currently support.
+    # Preserve the diagnostic/experimental views without presenting them as peers of
+    # the decision sheet. The optional 3D view reuses the active plan rather
+    # than solving a second hydraulic scenario.
+    (tab_decision, tab_map, tab_hydraulic, tab_filtration, tab_scenarios,
+     tab_equipment, tab_references) = st.tabs(
+        ["Decisión", "Plano y recorrido 2D/3D", "Hidráulica Riverflow",
+         "Filtración", "Comparar escenarios", "Equipos e instalación",
+         "Fuentes y límites"])
+    with tab_decision:
+        decision_content = st.container()
+        tab_explain = st.expander("Cómo interpretar los resultados", expanded=False)
+    tab_decision = decision_content
+    with tab_map:
+        map_content = st.container()
+        tab_fast = st.expander("Recorrido animado · ilustrativo", expanded=False)
+    tab_map = map_content
+    with tab_hydraulic:
+        hydraulic_content = st.container()
+        with st.expander("Laboratorio 2D · pruebas no aptas para compra", expanded=False):
+            tab_momentum, tab_cfd = st.tabs(
+                ["Sensibilidad del 2 %", "Simulación experimental"])
+    tab_hydraulic = hydraulic_content
+    with tab_filtration:
+        tab_guided = st.container()
+        tab_treatment = st.expander("Comprobaciones avanzadas de tratamiento", expanded=False)
+    with tab_equipment:
+        equipment_content = st.container()
+        tab_plans = st.expander("Planos y detalles de instalación", expanded=False)
+    tab_equipment = equipment_content
 
     with tab_map:
-        st.info("Circulación definida: sentido horario. El origen del recorrido es el punto inicial del DXF; "
-                "las posiciones editables en metros aumentan en ese sentido.")
+        st.info(f"Circulación antihoraria. La progresiva 0/{model.geometry.channel_length_m:.0f} m "
+                "marca el inicio y fin de la vuelta "
+                "en la sección más ancha de la playa principal; el DXF no se modifica. "
+                "Las posiciones editables aumentan desde esa playa. Las posiciones manuales "
+                "de la sesión anterior se convierten para conservar su lugar físico.")
         if beach_geometry is not None:
             st.subheader("Cotas proporcionales · playa principal")
             first_m = beach_geometry.beach_max_extra_width_m * beach_first_share / 100
@@ -733,8 +793,13 @@ def main():
                 xaxis_title="Distancia desde el canal hacia la playa (m)",
                 yaxis_title="Cota relativa del fondo (m)", showlegend=False)
             st.plotly_chart(section_plot, width="stretch")
-            st.caption(f"Playa principal: progresiva {beach_geometry.beach_start_m:.0f}–"
-                       f"{beach_geometry.beach_end_m:.0f} m, incluidos los extremos de transición. "
+            beach_range = (f"{beach_geometry.beach_start_m:.0f}–"
+                           f"{model.geometry.channel_length_m:.0f} m y "
+                           f"0–{beach_geometry.beach_end_m:.0f} m, a ambos lados del inicio/fin"
+                           if beach_geometry.beach_start_m > beach_geometry.beach_end_m else
+                           f"{beach_geometry.beach_start_m:.0f}–"
+                           f"{beach_geometry.beach_end_m:.0f} m")
+            st.caption(f"Playa principal: progresivas {beach_range}. "
                        "El DXF solo tiene los dos contornos de pared: se supone una playa en una margen y "
                        "se reparte el ancho adicional según la proporción elegida. Las otras zonas anchas "
                        "permanecen como bahías calmas, no como salidas a la arena.")
@@ -799,11 +864,47 @@ def main():
         z2.metric("Bahías y zonas calmas", f"{plan.calm_zone_length_m:.0f} m")
         st.metric("Mayor distancia de canal a una unidad", f"{plan.max_current_distance_to_module_m:.0f} m",
                   help="Distancia más larga, medida sobre el recorrido cerrado, desde una sección de corriente hasta la unidad activa más cercana. Cambia al mover unidades; no equivale a alcance hidráulico de la descarga.")
+        with st.expander("Vista 3D · mismo escenario Riverflow", expanded=False):
+            st.caption("Usa el DXF, profundidad, playa, unidades, posiciones, ángulos y "
+                       "velocidad seccional Q/A de este escenario. El tiempo del marcador "
+                       "coincide con la vuelta volumétrica indicada arriba; la vuelta de "
+                       "los carriles 2D puede ser distinta. La superficie y los trazos "
+                       "animados son una representación conceptual, no CFD.")
+            visual_mode = st.radio(
+                "Capa de velocidad 3D",
+                ["Campo 2D lateral · prueba", "Q/A uniforme por sección"],
+                horizontal=True, key="rf_3d_visual_mode")
+            st.caption("La capa lateral proyecta el mapa 2D existente sobre la superficie. "
+                       "Sus partículas siguen tres carriles con tiempos distintos. "
+                       "No predice chorros reales, remolinos ni seguridad de bañistas.")
+            if st.checkbox("Cargar vista 3D interactiva", value=False,
+                           key="rf_show_active_3d"):
+                from experiments.openfoam_nya_pilot.riverflow_3d_decision_pilot import (
+                    geometry_from_active_plan, make_plot, render_animation)
+                scene_xy, scene_bed, scene_s, scene_widths, scene_result = (
+                    geometry_from_active_plan(
+                        model, plan, depth_m, beach_geometry,
+                        beach_first_share / 100))
+                scene_figure, rider_index, rider_track, streak_index, streak_frames = (
+                    make_plot(scene_xy, scene_bed, scene_s, scene_widths,
+                              beach_geometry, scene_result, plan.module_chainages_m,
+                              [], module_angles_deg=plan.module_angles_deg,
+                              field=(field if visual_mode.startswith("Campo 2D")
+                                     else None)))
+                st.iframe(render_animation(scene_figure, rider_index, rider_track,
+                                           streak_index, streak_frames), height=790)
+                st.caption(f"Escenario activo: {plan.active_modules} unidades Riverflow a "
+                           f"{speed_pct}% del variador; Q longitudinal equivalente "
+                           f"{plan.equivalent_channel_flow_m3_h:,.0f} m³/h; "
+                           f"vuelta volumétrica {plan.estimated_lap_min:.1f} min. "
+                           "El color representa el campo 2D proyectado o Q/A por sección, "
+                           "según la capa elegida; no predice remolinos "
+                           "ni velocidad junto a tomas y boquillas.")
 
     with tab_explain:
         st.subheader("Cómo leer este escenario")
         st.markdown(
-            f"1. **Plano y agua:** el DXF fija el recorrido horario de {plan.length_m:.0f} m "
+            f"1. **Plano y agua:** el DXF fija el recorrido antihorario de {plan.length_m:.0f} m "
             f"y los anchos variables. Con {depth_m:.2f} m en el canal "
             f"{'y una playa principal de profundidad variable' if beach_geometry else 'y profundidad uniforme'}, "
             f"el volumen aproximado "
@@ -1006,7 +1107,7 @@ def main():
                     "Ninguna de estas simulaciones sustituye la verificación antes de construir.")
 
     with tab_fast:
-        st.subheader("Vuelta conceptual acelerada · sentido horario")
+        st.subheader("Vuelta conceptual acelerada · sentido antihorario")
         playback = st.select_slider("Velocidad de reproducción", [60, 120, 300, 600], value=300,
                                     format_func=lambda value: f"{value}×",
                                     help="Acelera solo la animación. No cambia RPM, caudal ni tiempo físico de vuelta.")
@@ -1111,7 +1212,7 @@ def main():
                 profile.add_trace(go.Scatter(x=field.chainages_m,
                                              y=np.mean(field.longitudinal_m_s, axis=1),
                                              name="Mapa actual · media de carriles"))
-                profile.update_layout(height=270, xaxis_title="Progresiva horaria (m)",
+                profile.update_layout(height=270, xaxis_title="Progresiva antihoraria (m)",
                                       yaxis_title="Velocidad (m/s)",
                                       margin=dict(l=20, r=20, t=20, b=30))
                 st.plotly_chart(profile, width="stretch")
@@ -1695,6 +1796,94 @@ def main():
                 "supuesto; el caudal de cada bomba usa la curva disponible y pérdidas locales "
                 "editables. Velocidades y vuelta siguen dependiendo del 2 % no medido. "
                 "El ensayo 2D hereda ese caudal y no lo valida.")
+        st.markdown("**Preselección de cantidad y ubicación · mismo DXF y bombas Riverflow**")
+        st.caption("Compare cantidades activas manteniendo la velocidad del variador, circuito "
+                   "local, rugosidad, profundidad y recambio elegidos. La fila de la cantidad "
+                   "actual conserva sus ubicaciones y ángulos editados; las alternativas se "
+                   "reparten automáticamente en zonas de corriente con salidas alineadas.")
+        cr1, cr2 = st.columns(2)
+        count_limits = cr1.slider(
+            "Rango de unidades activas a comparar", 1, 60,
+            (max(1, active_modules - 6), min(60, active_modules + 6)),
+            key=f"rf_count_range_{active_modules}")
+        count_step = cr2.select_slider(
+            "Salto entre cantidades", options=(1, 2, 3, 4, 5, 6, 8, 10), value=3)
+        counts_to_check = list(range(count_limits[0], count_limits[1] + 1,
+                                     count_step))
+        if count_limits[0] <= active_modules <= count_limits[1]:
+            counts_to_check.append(active_modules)
+        counts_to_check = sorted(set(counts_to_check))
+        if len(counts_to_check) > 15:
+            st.warning("El rango produciría más de 15 diseños; aumente el salto para "
+                       "mantener legible la comparación.")
+        else:
+            count_options = evaluate_count_options(
+                model.stations, counts=counts_to_check, current_plan=plan,
+                current_field=field, depth_m=depth_m,
+                scale_m_per_unit=model.geometry.scale_m_per_unit,
+                calm_zone_width_m=calm_width_m, floor_manning_n=floor_n,
+                wall_manning_n_current=wall_n_current,
+                wall_manning_n_calm=wall_n_calm,
+                filtration_turnover_h=turnover_h, beach_geometry=beach_geometry)
+            st.dataframe([{
+                "Unidades activas": option.plan.active_modules,
+                "Q local total (m³/h)": round(option.plan.installed_operating_flow_m3_h),
+                "Vuelta lenta · 0,5× energía (min)": round(option.slow_lap_low_transfer_min, 1),
+                "Vuelta lenta · hipótesis actual (min)": round(option.slow_lap_nominal_min, 1),
+                "Vuelta lenta · 2× energía (min)": round(option.slow_lap_high_transfer_min, 1),
+                "Velocidad seccional min–máx (m/s)":
+                    f"{option.plan.velocity_min_m_s:.3f}–{option.plan.velocity_max_m_s:.3f}",
+                "Mayor espacio entre unidades (m)": round(option.max_module_spacing_m),
+            } for option in count_options], width="stretch", hide_index=True)
+            current_areas = [area for area, zone in
+                             zip(plan.station_areas_m2, plan.station_zones)
+                             if zone == "current"]
+            if current_areas:
+                band_flow_lower = max(current_areas) * .25 * 3600
+                band_flow_upper = min(current_areas) * .30 * 3600
+                if band_flow_lower > band_flow_upper:
+                    st.warning("Con las secciones de corriente del DXF, un solo caudal "
+                               "longitudinal no puede mantener todas entre 0,25 y 0,30 m/s: "
+                               f"haría falta Q ≥ {band_flow_lower:,.0f} y simultáneamente "
+                               f"Q ≤ {band_flow_upper:,.0f} m³/h. La cantidad de bombas "
+                               "por sí sola no corrige esa contradicción geométrica; "
+                               "revise subzonas, secciones o la meta local antes de comprar.")
+            near_target = [option.plan.active_modules for option in count_options
+                           if option.slow_lap_nominal_min <= target_lap_min]
+            if near_target:
+                st.info("En las cantidades probadas, la primera que llega al tiempo de "
+                        f"referencia de {target_lap_min:.1f} min bajo la hipótesis actual "
+                        f"es **{min(near_target)} unidades activas**. No es una cantidad "
+                        "aprobada para compra: compare también la fila conservadora, "
+                        "velocidades locales y ubicación.")
+            else:
+                st.warning("Ninguna cantidad probada alcanza el tiempo de referencia bajo "
+                           "la hipótesis actual. Amplíe el rango o revise geometría, "
+                           "pérdidas y criterio de operación.")
+            filter_duty = int(st.session_state["filtration_active_pumps"])
+            st.caption(f"Tratamiento del mismo escenario: {plan.filtration_flow_m3_h:,.0f} "
+                       f"m³/h deben pasar por filtros en {turnover_h:.1f} h; con "
+                       f"{filter_duty} bombas activas de filtración, cada una tendría "
+                       f"que entregar {plan.filtration_flow_m3_h / filter_duty:,.0f} "
+                       "m³/h a la TDH con filtro sucio. Estas bombas no se suman a las "
+                       "unidades Riverflow; su capacidad sigue pendiente de comprobación.")
+            with st.expander("Ver posiciones y mapa de una cantidad comparada"):
+                selected_count = st.selectbox(
+                    "Unidades activas del mapa", counts_to_check,
+                    index=counts_to_check.index(active_modules)
+                    if active_modules in counts_to_check else 0)
+                selected_option = next(option for option in count_options
+                                       if option.plan.active_modules == selected_count)
+                st.plotly_chart(make_map(model, selected_option.plan,
+                                         field=selected_option.field),
+                                width="stretch", key="rf_count_option_map")
+                st.write("Progresivas propuestas en sentido antihorario (m): " +
+                         ", ".join(f"{p:.0f}" for p in
+                                   selected_option.plan.module_chainages_m))
+            st.caption("0,5× y 2× son sensibilidad de una transferencia de energía no medida, "
+                       "no un intervalo probable. El mapa 2D conserva caudal por sección, "
+                       "pero no verifica chorros, playas ni seguridad; las posiciones "
+                       "alternativas son propuestas para estudio, no planos de instalación.")
         st.markdown("**Comprobación física independiente del 2 % · límite optimista**")
         st.caption("Se compara el arrastre Manning a la vuelta objetivo con el máximo impulso "
                    "ideal de las descargas. Supone que TODA la TDH local se transforma en "

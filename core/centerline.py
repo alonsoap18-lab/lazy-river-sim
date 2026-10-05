@@ -2,7 +2,6 @@
 import numpy as np
 from shapely.geometry import LineString, Point, Polygon
 from typing import List, Tuple, Optional
-from scipy.signal import savgol_filter
 
 
 def signed_centerline_area(stations) -> float:
@@ -28,6 +27,69 @@ def orient_stations_clockwise(stations) -> list[dict]:
             if key in station:
                 station[key] = -station[key]
     return ordered
+
+
+def orient_stations_counterclockwise(stations) -> list[dict]:
+    """Keep the DXF origin and number the loop counterclockwise.
+
+    The normal always points toward the *outer* bank, independent of travel
+    direction. Thus lateral fraction 0 remains the inner/deep side used by
+    the beach and discharge visualizations.
+    """
+    if len(stations) < 3:
+        raise ValueError("El recorrido DXF necesita al menos tres estaciones.")
+    length = float(stations[-1]["chainage_m"])
+    reversed_order = signed_centerline_area(stations) < 0
+    if not reversed_order:
+        ordered = [dict(station) for station in stations]
+    else:
+        ordered = [dict(stations[0]), *(dict(s) for s in reversed(stations[1:-1])),
+                   dict(stations[-1])]
+    for index, station in enumerate(ordered):
+        station["station_id"] = index
+        if reversed_order:
+            station["chainage_m"] = (0.0 if index == 0 else
+                                      length if index == len(ordered) - 1 else
+                                      length - float(station["chainage_m"]))
+            for key in ("tangent_x", "tangent_y"):
+                if key in station:
+                    station[key] = -station[key]
+        if "tangent_x" in station and "tangent_y" in station:
+            # The right-hand normal of a CCW path points geometrically outward.
+            # Recomputing it makes this normalization idempotent.
+            station["normal_x"] = station["tangent_y"]
+            station["normal_y"] = -station["tangent_x"]
+    return ordered
+
+
+def rotate_closed_stations(stations, start_index: int) -> list[dict]:
+    """Reindex a closed loop at one existing section without moving the DXF."""
+    if len(stations) < 4:
+        raise ValueError("El recorrido cerrado necesita al menos tres secciones.")
+    length = float(stations[-1]["chainage_m"])
+    if length <= 0:
+        raise ValueError("La longitud del recorrido debe ser positiva.")
+    unique = stations[:-1]
+    if not 0 <= start_index < len(unique):
+        raise ValueError("La sección de inicio debe pertenecer al recorrido.")
+    origin = float(unique[start_index]["chainage_m"])
+    rotated = [dict(s) for s in (*unique[start_index:], *unique[:start_index])]
+    for i, station in enumerate(rotated):
+        station.setdefault("dxf_origin_chainage_m", origin)
+        station["station_id"] = i
+        station["chainage_m"] = (float(station["chainage_m"]) - origin) % length
+    closure = dict(rotated[0])
+    closure["station_id"] = len(rotated)
+    closure["chainage_m"] = length
+    rotated.append(closure)
+    return rotated
+
+
+def start_stations_at_widest_beach(stations) -> list[dict]:
+    """Reindex a closed CCW loop at its widest cross-section, without moving it."""
+    beach_index = max(range(len(stations) - 1),
+                      key=lambda i: float(stations[i]["width_m"]))
+    return rotate_closed_stations(stations, beach_index)
 
 
 class CenterlineBuilder:

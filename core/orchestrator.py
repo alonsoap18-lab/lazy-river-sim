@@ -3,7 +3,8 @@ import numpy as np
 from typing import List, Dict, Tuple, Optional
 
 from core.dxf_loader import DXFLoader
-from core.centerline import CenterlineBuilder, orient_stations_clockwise
+from core.centerline import (CenterlineBuilder, orient_stations_counterclockwise,
+                             start_stations_at_widest_beach)
 from core.hydraulics import HydraulicEngine
 from core.propulsion import PropulsionEngine
 from core.pumps import PumpModel
@@ -101,9 +102,10 @@ class LazyRiverModel:
             s['chainage_m'] *= length_scale
             s['width_m'] *= length_scale
 
-        # Chainage always follows the agreed clockwise circulation, regardless
-        # of the entity direction used when the DXF walls were drawn.
-        self.stations = orient_stations_clockwise(self.stations)
+        # Chainage follows the agreed counterclockwise circulation while the
+        # geometric normal keeps pointing to the outer bank.
+        self.stations = orient_stations_counterclockwise(self.stations)
+        self.stations = start_stations_at_widest_beach(self.stations)
 
         self.geometry.centerline_coords = [
             (s['x'], s['y']) for s in self.stations

@@ -79,15 +79,27 @@ def compute_momentum_pilot(stations: Sequence[dict], plan, depth_m: float,
         reference = beach_geometry.channel_reference_width_m
         extra = np.maximum(0.0, widths - reference)
         # The DXF has no submerged beach edge; this single-bank profile is an
-        # assumption. eta=0 is the interior bank for the clockwise traversal.
-        distance_from_beach = (eta if beach_bank == "Interior" else 1 - eta)[None, :] * widths[:, None]
-        slope_distance = np.maximum(0.0, extra[:, None] - distance_from_beach)
-        first_length = extra[:, None] * beach_first_share
-        rise = (np.minimum(slope_distance, first_length) * beach_geometry.first_slope +
-                np.maximum(0.0, slope_distance - first_length) * beach_geometry.ramp_slope)
-        active = ((s >= beach_geometry.beach_start_m) &
-                  (s <= beach_geometry.beach_end_m) & (extra > 0))[:, None]
-        profile = np.where(active, np.maximum(0.08, depth_m - rise), depth_m)
+        # assumption. eta=0 is the interior bank in either traversal direction.
+        if beach_geometry.beach_start_m <= beach_geometry.beach_end_m:
+            in_beach = ((s >= beach_geometry.beach_start_m) &
+                        (s <= beach_geometry.beach_end_m))
+        else:
+            in_beach = ((s >= beach_geometry.beach_start_m) |
+                        (s <= beach_geometry.beach_end_m))
+        active = (in_beach & (extra > 0))[:, None]
+        flat_entry = getattr(beach_geometry, "flat_entry_width_m", None)
+        if flat_entry is None:
+            distance_from_beach = (eta if beach_bank == "Interior" else 1 - eta)[None, :] * widths[:, None]
+            slope_distance = np.maximum(0.0, extra[:, None] - distance_from_beach)
+            first_length = extra[:, None] * beach_first_share
+            rise = (np.minimum(slope_distance, first_length) * beach_geometry.first_slope +
+                    np.maximum(0.0, slope_distance - first_length) * beach_geometry.ramp_slope)
+            profile = np.where(active, np.maximum(0.08, depth_m - rise), depth_m)
+        else:
+            distance_from_deep_bank = ((eta if beach_bank == "Exterior" else 1 - eta)[None, :]
+                                       * widths[:, None])
+            rise = np.maximum(0.0, distance_from_deep_bank - flat_entry) * beach_geometry.ramp_slope
+            profile = np.where(active, np.maximum(0.0, depth_m - rise), depth_m)
         depths = profile * (areas / (widths * profile.mean(axis=1)))[:, None]
 
     weights = depths * widths[:, None] / ny

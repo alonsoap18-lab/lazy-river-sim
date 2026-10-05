@@ -33,7 +33,7 @@ st.markdown("""<style>
 </style>""", unsafe_allow_html=True)
 
 
-MODEL_CACHE_VERSION = "multi-pump-scenarios-1"
+MODEL_CACHE_VERSION = "multi-pump-scenarios-3-beach-origin"
 
 
 @st.cache_resource(show_spinner="Cargando geometria DXF...")
@@ -102,6 +102,11 @@ def make_geometry_plot(model, show_stations=False):
         fig.add_trace(go.Scatter(x=[c[0] for c in cl], y=[c[1] for c in cl],
                                  mode='lines', name='Centroline',
                                  line=dict(color='green', width=1.5, dash='dot')))
+        fig.add_trace(go.Scatter(
+            x=[cl[0][0]], y=[cl[0][1]], mode='markers',
+            name='Inicio y fin · playa principal',
+            marker=dict(size=16, color='#be185d', symbol='star',
+                        line=dict(color='white', width=2))))
     if show_stations and model.stations:
         step = max(1, len(model.stations) // 20)
         for s in model.stations[::step]:
@@ -198,6 +203,13 @@ def make_simulation_plot(model, results, particles, jets_viz, t,
                 text=[f"J-{j.jet_id}" for j in jets],
                 textposition='top center',
                 name='Jets', hovertemplate='Jet %{text}<extra></extra>'))
+
+    if model.stations:
+        fig.add_trace(go.Scatter(
+            x=[model.stations[0]['x']], y=[model.stations[0]['y']],
+            mode='markers', name='Inicio y fin · playa principal',
+            marker=dict(size=16, color='#be185d', symbol='star',
+                        line=dict(color='white', width=2))))
 
     # Person/floater marker
     if person:
@@ -549,11 +561,14 @@ def main():
     st.sidebar.subheader("Layout de Propulsión")
     layout_mode = st.sidebar.radio(
         "Ubicación de cuartos y jets", ["Propuesta automática", "Editar por chainage"],
-        help="La propuesta automática evita zonas calmas. En modo manual, ingrese chainages en metros desde el inicio del recorrido."
+        help="La propuesta automática evita zonas calmas. En modo manual, ingrese progresivas en metros desde la playa principal (0/L)."
     )
     pump_room_chainages = None
     jet_chainages = None
     if layout_mode == "Editar por chainage":
+        st.sidebar.warning("El 0 m ahora está en la playa principal. Revise las posiciones "
+                           "manuales guardadas antes de usar este escenario; sus números "
+                           "anteriores se referían al origen del DXF.")
         rooms_text = st.sidebar.text_input(
             "Cuartos / manifolds (m, separados por coma)",
             value=", ".join(f"{length_m * (2 * i + 1) / (2 * n_pump_rooms):.0f}" for i in range(n_pump_rooms)),
@@ -2619,10 +2634,10 @@ if __name__ == "__main__":
     st.sidebar.header("Área de trabajo")
     workspace_view = st.sidebar.radio(
         "Seleccionar modelo",
-        ["Modelo original · bombas y jets", "Riverflow · módulos locales"],
+        ["Riverflow · NYA", "Modelo original · archivo"],
         help="Cada vista conserva sus propias hipótesis y resultados; no se mezclan caudales ni TDH.")
     st.sidebar.divider()
-    if workspace_view == "Modelo original · bombas y jets":
+    if workspace_view == "Modelo original · archivo":
         main()
     else:
         from riverflow_app import main as riverflow_main

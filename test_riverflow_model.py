@@ -3,7 +3,7 @@
 from math import isclose
 
 from core.orchestrator import LazyRiverModel
-from core.centerline import orient_stations_clockwise, signed_centerline_area
+from core.centerline import orient_stations_counterclockwise, signed_centerline_area
 from core.riverflow_model import (RIVERFLOW_RATED_M3_H, US_GPM_TO_M3_H,
                                   composite_manning_n, compute_riverflow_plan,
                                   riverflow_flow_at_head_ft,
@@ -98,18 +98,25 @@ def test_geometry_and_calm_threshold_update_integrated_results():
     assert deep.calm_zone_length_m < shallow.calm_zone_length_m
 
 
-def test_clockwise_direction_and_manning_friction_are_auditable():
+def test_counterclockwise_direction_and_manning_friction_are_auditable():
     stations = geometry()
-    assert signed_centerline_area(stations) < 0
+    assert signed_centerline_area(stations) > 0
     length = float(stations[-1]["chainage_m"])
-    ccw = [dict(stations[0]), *(dict(s) for s in reversed(stations[1:-1])),
-           dict(stations[-1])]
-    for i, station in enumerate(ccw):
-        station["chainage_m"] = (0.0 if i == 0 else length if i == len(ccw) - 1
+    clockwise = [dict(stations[0]), *(dict(s) for s in reversed(stations[1:-1])),
+                 dict(stations[-1])]
+    for i, station in enumerate(clockwise):
+        station["chainage_m"] = (0.0 if i == 0 else length if i == len(clockwise) - 1
                                  else length - float(station["chainage_m"]))
-    assert signed_centerline_area(ccw) > 0
-    normalized = orient_stations_clockwise(ccw)
-    assert signed_centerline_area(normalized) < 0
+        for key in ("tangent_x", "tangent_y"):
+            station[key] = -station[key]
+    assert signed_centerline_area(clockwise) < 0
+    normalized = orient_stations_counterclockwise(clockwise)
+    assert signed_centerline_area(normalized) > 0
+    assert all(abs(a["x"] - b["x"]) < 1e-8 and abs(a["y"] - b["y"]) < 1e-8
+               for a, b in zip(normalized, stations))
+    assert all(abs(a["normal_x"] - b["normal_x"]) < 1e-8 and
+               abs(a["normal_y"] - b["normal_y"]) < 1e-8
+               for a, b in zip(normalized, stations))
     assert all(a["chainage_m"] <= b["chainage_m"] for a, b in zip(normalized, normalized[1:]))
     base = compute_riverflow_plan(normalized, depth_m=1.2, target_lap_min=40,
                                   active_modules=19, manning_n_current=0.015,
@@ -166,7 +173,7 @@ if __name__ == "__main__":
     test_manual_changes_propagate_through_scenario()
     test_supplied_curve_changes_all_dependent_results()
     test_geometry_and_calm_threshold_update_integrated_results()
-    test_clockwise_direction_and_manning_friction_are_auditable()
+    test_counterclockwise_direction_and_manning_friction_are_auditable()
     test_wall_finish_and_smooth_floor_change_coupled_results()
     test_photo_curve_changes_intermediate_head_without_changing_anchors()
     print("Riverflow planning checks passed")

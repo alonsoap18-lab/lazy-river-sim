@@ -4,7 +4,8 @@ from math import isclose
 
 from core.beach_geometry import compute_beach_geometry
 from core.riverflow_2d import compute_field_2d
-from core.riverflow_decision import consistency_checks, evaluate_decision_cases
+from core.riverflow_decision import (consistency_checks, evaluate_count_options,
+                                     evaluate_decision_cases)
 from core.riverflow_local_circuit import LocalCircuit, solve_local_circuit
 from core.riverflow_model import compute_riverflow_plan
 from test_riverflow_model import geometry
@@ -79,9 +80,30 @@ def test_local_circuit_and_speed_reach_all_decision_rows():
     assert slower_cases[1].slow_lap_min > cases[1].slow_lap_min
 
 
+def test_count_options_preserve_current_layout_and_separate_filtration():
+    plan, field, _ = _scenario()
+    stations = geometry()
+    beach = compute_beach_geometry(stations, 1.2, 15)
+    options = evaluate_count_options(
+        stations, counts=(16, 19, 22), current_plan=plan,
+        current_field=field, depth_m=1.2, scale_m_per_unit=1,
+        calm_zone_width_m=15, floor_manning_n=.013,
+        wall_manning_n_current=.025, wall_manning_n_calm=.025,
+        filtration_turnover_h=4, beach_geometry=beach)
+    assert options[1].plan is plan
+    assert options[1].field is field
+    assert options[0].slow_lap_nominal_min > options[2].slow_lap_nominal_min
+    assert all(isclose(row.plan.filtration_flow_m3_h, plan.filtration_flow_m3_h)
+               for row in options)
+    assert all(row.slow_lap_low_transfer_min > row.slow_lap_nominal_min >
+               row.slow_lap_high_transfer_min for row in options)
+    assert all(row.max_module_spacing_m > 0 for row in options)
+
+
 if __name__ == "__main__":
     test_central_case_is_exactly_the_visible_scenario()
     test_energy_manning_geometry_and_count_reach_decision_rows()
     test_filter_hours_do_not_change_propulsion_decision()
     test_local_circuit_and_speed_reach_all_decision_rows()
+    test_count_options_preserve_current_layout_and_separate_filtration()
     print("Riverflow decision checks passed")

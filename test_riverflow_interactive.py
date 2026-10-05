@@ -24,7 +24,7 @@ def test_documentation_audit_tracks_manual_hypotheses():
     assert "Un conducto equivalente" in topics["Succión doble"]["Lo que se calcula"]
 
 
-def test_clockwise_fast_playback_is_kinematic_only():
+def test_counterclockwise_fast_playback_is_kinematic_only():
     model = LazyRiverModel()
     assert model.load_dxf("RECORRIDO.dxf") == []
     model.build_centerline(target_length_m=536)
@@ -168,6 +168,6 @@ def test_separate_views_and_treatment_recalculate():
 
 if __name__ == "__main__":
     test_documentation_audit_tracks_manual_hypotheses()
-    test_clockwise_fast_playback_is_kinematic_only()
+    test_counterclockwise_fast_playback_is_kinematic_only()
     test_separate_views_and_treatment_recalculate()
     print("Riverflow interactive checks passed")
