@@ -26,6 +26,8 @@ from core.riverflow_decision import (consistency_checks, evaluate_count_options,
                                      evaluate_decision_cases)
 from core.riverflow_momentum_pilot import compute_momentum_pilot
 from core.riverflow_momentum_bound import compute_momentum_bound
+from core.riverflow_jet_momentum import (NOZZLE_12X7_OPEN_AREA_M2,
+                                         nozzle_outlet_k, solve_jet_momentum)
 from core.riverflow_envelope import evaluate_envelope
 from core.riverflow_local_circuit import (LocalCircuit, PVC_12_SCH40_REFERENCE_ID_M,
                                           circuit_head, solve_local_circuit)
@@ -66,6 +68,7 @@ RIVERFLOW_3FT_PLAN_URL = (
     "https://riverflowpumps.com/wp-content/uploads/2023/06/"
     "022417-Lazy-River-3ft-depth.pdf"
 )
+RFS_200_MAX_CERTIFIED_M3_H = 2440 * US_GPM_TO_M3_H
 
 
 @st.cache_resource(show_spinner="Leyendo recorrido DXF...")
@@ -362,7 +365,7 @@ def make_installation_schematic():
 
 def documentation_calculation_audit(*, suction_length_m, discharge_length_m,
                                     suction_k, discharge_k, outlet_k,
-                                    transfer_pct, nozzle_type):
+                                    transfer_pct, nozzle_type, nozzle_cd=None):
     """Expose source-to-calculation gaps without changing hydraulic outputs."""
     return [
         {"Tema": "Succión doble", "Lo que se calcula": "Un conducto equivalente de succión",
@@ -372,9 +375,12 @@ def documentation_calculation_audit(*, suction_length_m, discharge_length_m,
          f"Longitudes {suction_length_m:g}/{discharge_length_m:g} m; K {suction_k:g}/{discharge_k:g}/{outlet_k:g}",
          "Dato del plano": "Topología y piezas de una instalación de referencia",
          "Pendiente para NYA": "Trazado real, cotas y K verificables de piezas y boquilla"},
-        {"Tema": "Tipo de salida", "Lo que se calcula": f"{nozzle_type}: etiqueta; K de salida común",
-         "Dato del plano": "Orientación y montaje de la boquilla de 7 puertos",
-         "Pendiente para NYA": "Curva de pérdidas o geometría hidráulica de cada salida"},
+        {"Tema": "Tipo de salida", "Lo que se calcula": (
+            f"{nozzle_type}: área 0,2892 ft² y K equivalente con Cd={nozzle_cd:.2f} supuesto"
+            if nozzle_type == "7 puertos" and nozzle_cd is not None else
+            f"{nozzle_type}: K de salida manual, sin área hidráulica comprobada"),
+         "Dato del plano": "Área abierta en carta Brannon; montaje en plano ejemplo",
+         "Pendiente para NYA": "Cd y curva real de pérdidas; área/curva para 3 puertos"},
         {"Tema": "Impulso del río", "Lo que se calcula":
          f"Acoplamiento efectivo supuesto: {transfer_pct:g}%",
          "Dato del plano": "No ofrece velocidades medidas en un río comparable",
@@ -595,6 +601,13 @@ def main():
     selected_reference = (next((reference for reference in LAZY_RIVER_REFERENCES
                                 if reference.label == hydraulic_source), None)
                           if use_local_circuit else None)
+    nozzle_type = st.sidebar.selectbox(
+        "Salida propuesta", ["7 puertos", "Manifold de 3 puertos"],
+        help="Solo la salida 12 × 7 tiene área abierta documentada (0,2892 ft²). "
+             "Para tres puertos falta el área y su curva de pérdidas: no se extrapolan las del modelo de siete.")
+    if selected_reference is not None and nozzle_type != "7 puertos":
+        st.sidebar.warning("La referencia Brannon incluye acelerador de 7 puertos. "
+                           "Seleccionar 3 puertos no recalcula ese punto documentado.")
     with st.sidebar.expander("Circuito local · toma → bomba → descarga", expanded=use_local_circuit):
         st.caption("El plano de Riverflow muestra dos tomas, tubería PVC Sch 40 nominal de 12″ "
                    "y salida de 7 puertos. El diámetro interior inicial ≈0.303 m procede de "
@@ -608,7 +621,30 @@ def main():
                                             round(PVC_12_SCH40_REFERENCE_ID_M, 3), 0.001, format="%.3f")
         suction_k = st.number_input("K agregado tomas y accesorios succión · hipótesis", 0.0, 30.0, 1.0, 0.5)
         discharge_k = st.number_input("K agregado accesorios descarga · hipótesis", 0.0, 30.0, 1.0, 0.5)
-        outlet_k = st.number_input("K salida/acelerador · hipótesis no medida", 0.0, 30.0, 3.0, 0.5)
+        documented_nozzle = nozzle_type == "7 puertos"
+        nozzle_loss_mode = st.radio(
+            "Pérdida de salida para circuito NYA",
+            ["Área documentada + Cd supuesto", "K manual"],
+            disabled=not documented_nozzle,
+            help="El área abierta está documentada; Cd NO fue medido. El K equivalente "
+                 "sustituye al K manual, nunca se suma a él.") if documented_nozzle else "K manual"
+        if nozzle_loss_mode == "Área documentada + Cd supuesto":
+            nozzle_cd = st.slider(
+                "Cd supuesto del acelerador (no medido)", 0.50, 1.00, 0.85, 0.01,
+                help="Representa de forma simplificada la contracción/pérdida del acelerador. "
+                     "0,85 es una hipótesis de prueba, no un rendimiento publicado por Riverflow.")
+            outlet_k = nozzle_outlet_k(discharge_diameter,
+                                       NOZZLE_12X7_OPEN_AREA_M2, nozzle_cd)
+            st.caption(f"Área abierta Riverflow 12 × 7: 0,2892 ft² = "
+                       f"{NOZZLE_12X7_OPEN_AREA_M2:.5f} m². "
+                       f"K equivalente de salida = {outlet_k:.2f} sobre la velocidad en tubería. "
+                       "Cambia con el diámetro y Cd; el valor real de Cd sigue sin conocerse.")
+        else:
+            nozzle_cd = None
+            outlet_k = st.number_input(
+                "K salida/acelerador · hipótesis no medida", 0.0, 30.0, 3.0, 0.5,
+                help="Se usa si la salida es de 3 puertos o se desea comparar un K manual. "
+                     "No representa una pérdida medida del fabricante.")
         static_head = st.number_input("Desnivel neto del circuito (m)", 0.0, 5.0, 0.0, 0.1,
                                       help="En recirculación desde y hacia el mismo espejo de agua se usa 0; "
                                            "no representa la elevación física de la bomba ni verifica succión inundada.")
@@ -627,8 +663,12 @@ def main():
                 "Ø descarga m": [discharge_diameter] * active_modules,
                 "K succión": [suction_k] * active_modules,
                 "K descarga": [discharge_k] * active_modules,
-                "K salida": [outlet_k] * active_modules,
             })
+            if nozzle_cd is None:
+                defaults["K salida"] = [outlet_k] * active_modules
+            else:
+                st.caption("El K de salida se recalcula para cada unidad con su diámetro "
+                           "de descarga y el Cd supuesto; no se edita ni se suma otro K.")
             circuit_rows = st.data_editor(
                 defaults, hide_index=True, num_rows="fixed", disabled=["RF"],
                 key=f"rf_circuits_{active_modules}", width="stretch")
@@ -651,11 +691,14 @@ def main():
                     local_points = []
                     for i, row in circuit_rows.iterrows():
                         try:
+                            unit_outlet_k = (nozzle_outlet_k(
+                                float(row["Ø descarga m"]), NOZZLE_12X7_OPEN_AREA_M2,
+                                nozzle_cd) if nozzle_cd is not None else float(row["K salida"]))
                             unit_circuit = LocalCircuit(
                                 float(row["Succión m"]), float(row["Ø succión m"]),
                                 float(row["Descarga m"]), float(row["Ø descarga m"]),
                                 float(row["K succión"]), float(row["K descarga"]),
-                                float(row["K salida"]), static_head)
+                                unit_outlet_k, static_head)
                             local_points.append(solve_local_circuit(
                                 unit_circuit, speed_fraction=speed_pct / 100,
                                 curve_mode=curve_mode))
@@ -686,11 +729,6 @@ def main():
         help="Hipótesis NO medida: fracción de la potencia hidráulica de las bombas que termina "
              "sosteniendo la corriente longitudinal tras pérdidas locales, boquillas y mezcla. "
              "2% es solo un punto de prueba, no un dato de Riverflow.")
-    nozzle_type = st.sidebar.selectbox("Salida propuesta", ["7 puertos", "Manifold de 3 puertos"],
-                                       help="La selección queda registrada; faltan pérdidas y dimensiones de la boquilla para diferenciar su efecto hidráulico.")
-    if selected_reference is not None and nozzle_type != "7 puertos":
-        st.sidebar.warning("La referencia Brannon incluye acelerador de 7 puertos. "
-                           "Seleccionar 3 puertos no recalcula ese punto documentado.")
     placement_mode = st.sidebar.radio("Ubicación de unidades", ["Automática", "Editar por recorrido (m)"],
                                       help="La ubicación automática evita las entradas a playa.",
                                       key="riverflow_placement_mode")
@@ -769,7 +807,11 @@ def main():
 
     st.sidebar.header("Tratamiento separado")
     turnover_h = st.sidebar.number_input("Recirculación de filtración (h)",
-                                         2.0, 12.0, 4.0, 0.5)
+                                         2.0, 12.0, 4.0, 0.5,
+                                         help="Q filtrado = volumen / horas. 4 h es el escenario NYA, "
+                                              "6 h es la referencia general de Costa Rica para vasos >0,60 m "
+                                              "si aplica, y 2 h es referencia internacional MAHC para lazy rivers. "
+                                              "No se suma el caudal de propulsión Riverflow.")
 
     try:
         plan_inputs = dict(depth_m=depth_m, target_lap_min=target_lap_min,
@@ -1271,6 +1313,12 @@ def main():
                 "solo determina el caudal de la curva. El balance incluye fricción Manning; "
                 "otras pérdidas se concentran en la fracción desconocida. Se necesitan "
                 "mediciones o CFD para calibrarla.")
+        st.info("**Comprobación nueva de siete puertos:** la ficha Brannon indica "
+                "0,2892 ft² de área abierta. La app usa Q/área para la velocidad de salida "
+                "y, si se elige, sustituye el K manual por uno equivalente con Cd editable. "
+                "Cd no está medido. En Hidráulica se compara además un balance de impulso "
+                "independiente; no reemplaza la vuelta ni el mapa principales porque la "
+                "transferencia real del chorro al río sigue desconocida.")
         st.markdown("**Base disponible:** DXF, plano de montaje y curva H–Q en imagen. "
                     "La app explora supuestos editables sin pedir nuevas fichas a proveedores. "
                     "Para construcción siguen sin conocerse las cotas exactas, pérdidas de "
@@ -1315,7 +1363,9 @@ def main():
                 {"Pérdida por unidad": "Tubería de succión", "m": local_point.suction_friction_m},
                 {"Pérdida por unidad": "Tubería de descarga", "m": local_point.discharge_friction_m},
                 {"Pérdida por unidad": "Tomas y accesorios · K supuesto", "m": local_point.fittings_m},
-                {"Pérdida por unidad": "Salida/acelerador · K supuesto", "m": local_point.outlet_m},
+                {"Pérdida por unidad": "Salida/acelerador · " +
+                 ("área documentada + Cd supuesto" if nozzle_cd is not None else "K manual supuesto"),
+                 "m": local_point.outlet_m},
                 {"Pérdida por unidad": "Desnivel neto supuesto", "m": circuit.static_head_m},
             ], width="stretch", hide_index=True)
             circuit_fig = go.Figure()
@@ -1336,13 +1386,12 @@ def main():
                                       xaxis_title="Caudal por unidad (m³/h)",
                                       yaxis_title="Carga local (ft)")
             st.plotly_chart(circuit_fig, width="stretch")
-            st.warning("Intersección calculada solo para el circuito SUPUESTO. Los K de tomas, "
-                       "accesorios y acelerador, el diámetro interior y el trazado no están "
-                       "definidos en NYA. La curva a variador parcial usa leyes de afinidad "
-                       "aproximadas; no se extrapola fuera de 4–10 ft de la curva entregada. "
-                       "El cambio de salida 7/3 puertos NO cambia automáticamente K: edítelo "
-                       "si cuenta con un valor fundamentado. No verifica succión, cavitación, "
-                       "potencia eléctrica ni seguridad de las rejillas.")
+            st.warning("Intersección calculada solo para el circuito SUPUESTO. Para 7 puertos, "
+                       "el área abierta documentada cambia el K equivalente y el caudal, pero "
+                       "Cd, K de tomas/accesorios, diámetro y trazado NYA no están medidos. "
+                       "Para 3 puertos se conserva un K manual porque falta su área/curva. "
+                       "A velocidad parcial se aplican leyes de afinidad aproximadas. "
+                       "No verifica cavitación, potencia eléctrica ni seguridad de rejillas.")
             st.caption("El plano de referencia Riverflow muestra dos tomas y tubería nominal "
                        "de 12 pulgadas; no es un plano de NYA. Método de pérdidas: Darcy–Weisbach "
                        "para tramos y K·v²/(2g) para pérdidas concentradas. "
@@ -1391,6 +1440,59 @@ def main():
         else:
             st.info("Circuito local desactivado: la TDH manual se usa para interpolar el caudal "
                     "en la curva y todas las salidas continúan enlazadas a ese caudal.")
+        st.subheader("Boquilla de 7 puertos · comprobación independiente de impulso")
+        if nozzle_type == "7 puertos":
+            st.caption("Del documento RiverFlow Flow Rates: área abierta 0,2892 ft². "
+                       "La velocidad de salida se calcula como Q de cada bomba / área; "
+                       "NO es la velocidad del río. El impulso bruto es ρ·Q·v con orientación "
+                       "de la descarga. Manning representa el arrastre del canal.")
+            jet_transfer_pct = st.slider(
+                "Fracción de impulso que mueve el río (%) · hipótesis NO medida",
+                1, 100, 10, 1, key="rf_jet_transfer_pct",
+                help="Incluye mezcla, succión cercana, paredes y curvas. Es distinta del "
+                     "porcentaje de energía útil del escenario principal; no se pueden igualar.")
+            jet_result = solve_jet_momentum(
+                model.stations, plan, perimeters,
+                transfer_fraction=jet_transfer_pct / 100)
+            j1, j2, j3, j4 = st.columns(4)
+            j1.metric("Área abierta documentada", f"{NOZZLE_12X7_OPEN_AREA_M2:.5f} m²")
+            j2.metric("V salida por unidad", f"{min(jet_result.per_unit_exit_speed_m_s):.2f}–"
+                      f"{max(jet_result.per_unit_exit_speed_m_s):.2f} m/s")
+            j3.metric("Vuelta · ensayo de impulso", f"{jet_result.lap_min:.1f} min")
+            j4.metric("Impulso requerido para meta",
+                      f"{jet_result.target_required_transfer_fraction:.0%}")
+            max_unit_flow = max(jet_result.per_unit_flow_m3_h)
+            st.caption(f"Dos tomas RFS 200 por unidad: con reparto igual, "
+                       f"≈{max_unit_flow / 2:,.0f} m³/h por rejilla; con una toma "
+                       f"obstruida, hasta ≈{max_unit_flow:,.0f} m³/h por la restante, "
+                       f"frente a {RFS_200_MAX_CERTIFIED_M3_H:,.0f} m³/h de capacidad "
+                       "certificada por salida. Es solo comprobación de caudal nominal: "
+                       "no demuestra seguridad contra atrapamiento ni pérdidas de cada ramal.")
+            if max_unit_flow > RFS_200_MAX_CERTIFIED_M3_H:
+                st.error("El caudal por una toma ante obstrucción superaría la capacidad "
+                         "publicada de la RFS 200; este escenario requiere rediseño.")
+            st.dataframe([
+                {"Cálculo": "Escenario principal · balance de energía no calibrado",
+                 "Caudal longitudinal (m³/h)": round(plan.equivalent_channel_flow_m3_h),
+                 "Tiempo de vuelta (min)": round(plan.estimated_lap_min, 1),
+                 "Parámetro desconocido": f"{transfer_pct:.1f}% energía útil"},
+                {"Cálculo": "Comprobación · balance de impulso no calibrado",
+                 "Caudal longitudinal (m³/h)": round(jet_result.channel_flow_m3_h),
+                 "Tiempo de vuelta (min)": round(jet_result.lap_min, 1),
+                 "Parámetro desconocido": f"{jet_transfer_pct}% impulso transferido"},
+            ], width="stretch", hide_index=True)
+            if jet_result.target_required_transfer_fraction > 1:
+                st.error("La meta requeriría más del 100 % del impulso bruto calculado "
+                         "en este ensayo; revise escenario, geometría y cantidad de bombas.")
+            st.warning("Los porcentajes de energía e impulso describen mecanismos distintos; "
+                       "ninguno está medido en NYA. Este ensayo NO modifica el mapa, el 3D "
+                       "ni la cantidad sugerida por el modelo principal. Que ambos tiempos "
+                       "coincidan no valida ninguno. Mover una bomba solo cambia la orientación "
+                       "en este balance global: la ventaja de una posición exige CFD o ensayo físico.")
+        else:
+            st.info("No se calcula velocidad de salida ni impulso para el manifold de 3 puertos: "
+                    "no se entregó su área abierta ni su curva de pérdidas. El K manual solo "
+                    "permite comparar un circuito hipotético.")
         st.markdown("**Comparación local · misma geometría NYA y misma hipótesis de energía útil**")
         comparison_rows = []
         try:
@@ -1505,15 +1607,16 @@ def main():
                 {"Dato editable": "Variador y energía útil", "Afecta": "Corriente, vuelta, velocidades y fricción",
                  "Estado": "Leyes de afinidad aproximadas; energía útil no medida"},
                 {"Dato editable": "Ubicación y orientación de módulos", "Afecta": "Acoplamiento supuesto, corriente, vuelta y campo 2D",
-                 "Estado": "Sensibilidad geométrica sin pérdidas de boquilla ni calibración"},
+                 "Estado": "Sensibilidad geométrica sin alcance medido de chorros ni calibración lateral"},
                 {"Dato editable": "Recambio de filtración", "Afecta": "Caudal de tratamiento separado",
                  "Estado": "No se suma al caudal de propulsión"},
             ], width="stretch", hide_index=True)
-        st.warning("La TDH del circuito se calcula con longitudes, diámetros y K supuestos para NYA; "
+        st.warning("La TDH del circuito se calcula con longitudes, diámetros y pérdidas supuestas para NYA; "
                    "en modo manual se ingresa directamente. La curva a velocidad parcial "
                    "se escala por afinidad: no está verificada por el fabricante. "
-                   "Potencia eléctrica y velocidad de salida "
-                   "requieren dimensiones de tomas/salidas, trazado local y validación del fabricante. "
+                   "Para siete puertos se calcula Q/área abierta documentada, pero la "
+                   "distribución por puerto y el acoplamiento al río siguen desconocidos. "
+                   "Potencia eléctrica y seguridad de tomas requieren validación adicional. "
                    "La placa de 10 HP no es el consumo instantáneo. No seleccionar bombas con "
                    "la cantidad calculada hasta calibrar energía útil y pérdidas de cada instalación.")
         st.markdown("**Ruta interna de mejora:** (1) perfil de playa proporcional al DXF · implementado como hipótesis; "
@@ -1766,18 +1869,22 @@ def main():
                 "por el sistema de tratamiento: Q = volumen / horas de recambio.")
         st.caption("4 horas es una hipótesis inicial editable, no una aprobación sanitaria para Liberia. "
                    "El volumen definitivo debe incluir también el tanque de compensación si forma "
-                   "parte del circuito de tratamiento.")
+                   "parte del circuito de tratamiento. 2 h requiere el doble de caudal filtrado "
+                   "que 4 h con el mismo volumen.")
         st.dataframe([{"Escenario": label, "Turnover (h)": hours,
                        "Q requerido por filtros (m³/h)": round(plan.volume_m3 / hours, 1)}
-                      for label, hours in (("Referencia normativa preliminar", 6.0),
-                                           ("Criterio NYA preliminar", 4.0),
-                                           ("Mayor capacidad", 3.0))],
+                      for label, hours in (("Costa Rica · categoría >0,60 m, por confirmar", 6.0),
+                                           ("NYA · escenario editable inicial", 4.0),
+                                           ("MAHC 2024 · lazy river, comparación internacional", 2.0))],
                      width="stretch", hide_index=True)
-        st.caption("Según el [artículo 32 del Reglamento sobre Manejo de Piscinas de Costa Rica]"
-                   "(https://www.aya.go.cr/laboratorio/selloCalidad/requisitosGalardon/"
-                   "Reglamento%20Sobre%20Manejo%20de%20Piscinas.pdf), "
-                   "6 h corresponde a vasos o partes de más de 0,60 m; confirmar la clasificación "
-                   "sanitaria del recorrido. Ninguno de estos caudales es consumo de agua nueva.")
+        st.caption("El [artículo 32 del Reglamento sobre Manejo de Piscinas de Costa Rica]"
+                   "(https://www.imprentanacional.go.cr/pub/2009/07/02/COMP_02_07_2009.html) "
+                   "indica 6 h para los demás vasos o partes de más de 0,60 m: confirmar la "
+                   "clasificación del lazy river ante la autoridad. Como comparación técnica, "
+                   "[MAHC 2024, tabla 4.7.1.10]"
+                   "(https://www.cdc.gov/model-aquatic-health-code/media/pdfs/2024/11/5th-Ed-MAHC-Code-508.pdf) "
+                   "indica 2 h o menos para lazy rivers, pero NO es ley costarricense. "
+                   "Ninguno de estos caudales es consumo de agua nueva ni se suma a Riverflow.")
         candidate_rate = st.number_input("Tasa de filtración de prueba (m/h)", 1.0, 60.0,
                                           20.0, 1.0,
                                           help="Hipótesis para comparar áreas, NO una recomendación de diseño ni un límite normativo. La tasa final depende del tipo y fabricante del filtro.")
@@ -2485,7 +2592,7 @@ def main():
         st.dataframe(documentation_calculation_audit(
             suction_length_m=suction_length, discharge_length_m=discharge_length,
             suction_k=suction_k, discharge_k=discharge_k, outlet_k=outlet_k,
-            transfer_pct=transfer_pct, nozzle_type=nozzle_type,
+            transfer_pct=transfer_pct, nozzle_type=nozzle_type, nozzle_cd=nozzle_cd,
         ), width="stretch", hide_index=True)
         st.warning("Los planos y la carta Brannon aportan puntos de operación de referencia, "
                    "no longitudes ni pérdidas confirmadas para NYA. Elegir esa referencia sí "
@@ -2506,6 +2613,12 @@ def main():
             {"Dato": "2014 GPM a 6.5 ft · Sch 40; 1988 GPM a 6.7 ft · Sch 80",
              "Fuente": "C.T. Brannon, RiverFlow Flow Rates, 09/12/2025",
              "Uso en el modelo": "Referencias seleccionables de doble succión y 7 puertos; no son NYA"},
+            {"Dato": "Acelerador 12 × 7: área abierta 0,2892 ft²",
+             "Fuente": "C.T. Brannon, RiverFlow Flow Rates, 09/12/2025",
+             "Uso en el modelo": "Q/área para velocidad de salida; K equivalente solo con Cd supuesto"},
+            {"Dato": "RFS 200: 2440 US GPM por toma certificada",
+             "Fuente": "NSF, Product Listing Details Suction Box, 10/2026",
+             "Uso en el modelo": "Comprobación preliminar de caudal con una toma obstruida"},
             {"Dato": "Motor 10 HP y variador ABB", "Fuente": "Página de componentes Riverflow",
              "Uso en el modelo": "HP de placa, nunca kW consumidos ni curva de rendimiento"},
             {"Dato": "Dos tomas, 7 puertos, PVC Sch 40 nominal 12″",
