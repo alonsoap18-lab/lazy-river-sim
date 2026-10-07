@@ -101,6 +101,9 @@ class LazyRiverModel:
         for s in self.stations:
             s['chainage_m'] *= length_scale
             s['width_m'] *= length_scale
+            # Curvature was measured in inverse DXF units before isotropic scaling.
+            s['curvature_1_m'] /= length_scale
+            s['curvature_radius_m'] *= length_scale
 
         # Chainage follows the agreed counterclockwise circulation while the
         # geometric normal keeps pointing to the outer bank.

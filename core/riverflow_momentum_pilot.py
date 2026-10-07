@@ -109,8 +109,9 @@ def compute_momentum_pilot(stations: Sequence[dict], plan, depth_m: float,
     drag = (2 * 9.81 * manning[:, None] ** 2 * base_u[:, None] /
             np.maximum(depths, 0.08) ** (4 / 3))
     source = np.zeros((ns, ny))
-    bank_eta = 0.85 if beach_bank == "Interior" else 0.15
-    for position, angle in zip(plan.module_chainages_m, plan.module_angles_deg):
+    for position, angle, bank in zip(plan.module_chainages_m, plan.module_angles_deg,
+                                     plan.module_banks):
+        bank_eta = 0.85 if bank == "Exterior" else 0.15
         distance = np.minimum(np.abs(s - position), length - np.abs(s - position))
         along = np.exp(-0.5 * (distance / jet_spread_m) ** 2)
         across = np.exp(-0.5 * ((eta - bank_eta) / 0.14) ** 2)

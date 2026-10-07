@@ -143,7 +143,7 @@ def geometry_from_active_plan(model, plan, depth_m, beach, first_share):
 
 
 def make_plot(xy, depth, chainages, widths, beach, result, positions, attractions,
-              module_angles_deg=None, field=None):
+              module_angles_deg=None, field=None, module_banks=None):
     positions = np.asarray(positions, dtype=float)
     take = np.unique(np.r_[np.arange(0, len(chainages), 5), len(chainages)-1,
                            np.argmin(result.section_speed_m_s),
@@ -184,13 +184,24 @@ def make_plot(xy, depth, chainages, widths, beach, result, positions, attraction
 
     # The arrows locate conceptual discharge directions; their size is not jet reach.
     ix = np.searchsorted(chainages, positions).clip(1, len(chainages)-2)
-    beach_modules = (((positions >= beach.beach_start_m) &
-                      (positions <= beach.beach_end_m)) if beach is not None
-                     else np.zeros(len(positions), dtype=bool))
-    # The drawn beach rises on the outer bank. Put conceptual discharges on
-    # the deeper inner side there; actual suction/return siting is unverified.
-    discharge_points = np.array([xy[i, 0 if in_beach else -1]
-                                 for i, in_beach in zip(ix, beach_modules)])
+    if beach is not None:
+        beach_modules = (((positions >= beach.beach_start_m) &
+                          (positions <= beach.beach_end_m))
+                         if beach.beach_start_m <= beach.beach_end_m else
+                         ((positions >= beach.beach_start_m) |
+                          (positions <= beach.beach_end_m)))
+    else:
+        beach_modules = np.zeros(len(positions), dtype=bool)
+    if module_banks is None:
+        # Standalone pilot retains its prior illustration; the integrated app
+        # passes explicit margins for every unit.
+        banks = ["Interior" if in_beach else "Exterior" for in_beach in beach_modules]
+    else:
+        banks = list(module_banks)
+        if len(banks) != len(positions) or any(b not in ("Interior", "Exterior") for b in banks):
+            raise ValueError("Las márgenes 3D deben coincidir con las unidades activas.")
+    discharge_points = np.array([xy[i, 0 if bank == "Interior" else -1]
+                                 for i, bank in zip(ix, banks)])
     tangents = xy[ix+1, xy.shape[1]//2] - xy[ix-1, xy.shape[1]//2]
     tangents /= np.linalg.norm(tangents, axis=1)[:, None]
     if module_angles_deg is not None:
@@ -200,14 +211,19 @@ def make_plot(xy, depth, chainages, widths, beach, result, positions, attraction
         tangents = np.column_stack((
             tangents[:, 0] * np.cos(angles) - tangents[:, 1] * np.sin(angles),
             tangents[:, 0] * np.sin(angles) + tangents[:, 1] * np.cos(angles)))
-    fig.add_trace(go.Scatter3d(
-        x=discharge_points[:, 0], y=discharge_points[:, 1], z=np.full(len(ix), .28),
-        mode="markers", marker=dict(size=5, color="#df743d", symbol="diamond"),
-        text=[f"RF-{i+1:02d} · {p:.1f} m · " +
-              ("margen interior profunda (hipótesis)" if beach_modules[i]
-               else "margen exterior (hipótesis)")
-              for i, p in enumerate(positions)],
-        hovertemplate="%{text}<extra></extra>", name="Descargas propuestas"))
+    for bank, color, symbol in (("Exterior", "#df743d", "diamond"),
+                                ("Interior", "#7c3aed", "square")):
+        selected = [i for i, assigned in enumerate(banks) if assigned == bank]
+        if selected:
+            fig.add_trace(go.Scatter3d(
+                x=discharge_points[selected, 0],
+                y=discharge_points[selected, 1],
+                z=np.full(len(selected), .28), mode="markers",
+                marker=dict(size=6, color=color, symbol=symbol),
+                text=[f"RF-{i+1:02d} · {positions[i]:.1f} m · margen "
+                      f"{bank.lower()} (hipótesis)" for i in selected],
+                hovertemplate="%{text}<extra></extra>",
+                name=f"RF · margen {bank.lower()}"))
     for point, tangent in zip(discharge_points, tangents):
         fig.add_trace(go.Scatter3d(
             x=[point[0], point[0]+3*tangent[0]],
@@ -329,9 +345,9 @@ def make_plot(xy, depth, chainages, widths, beach, result, positions, attraction
 
 def render_animation(fig, trace_index, track, streak_index, streak_frames):
     """Move only tracers; preserve the user's 3D camera and speed colors."""
-    # Load Plotly once from its CDN instead of embedding ~5 MB of JavaScript
-    # in every Streamlit rerun/iframe. The published app already needs network.
-    plot = pio.to_html(fig, include_plotlyjs="cdn", full_html=False,
+    # Bundle Plotly with the scene: a blocked CDN otherwise leaves the iframe
+    # completely blank even though the hydraulic calculation succeeds.
+    plot = pio.to_html(fig, include_plotlyjs=True, full_html=False,
                        div_id="nya-riverflow-fixed-scene",
                        config={"responsive": True, "displaylogo": False,
                                "scrollZoom": True})

@@ -213,7 +213,8 @@ class CenterlineBuilder:
             d3 = np.sqrt((x3 - x1) ** 2 + (y3 - y1) ** 2)
 
             if d1 * d2 * d3 > 0:
-                k = area2 / (d1 * d2 * d3)
+                # Circumcircle curvature is 4*A/(a*b*c); area2 is 2*A.
+                k = 2 * area2 / (d1 * d2 * d3)
             else:
                 k = 0.0
 

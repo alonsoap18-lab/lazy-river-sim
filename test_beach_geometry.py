@@ -68,7 +68,7 @@ def test_app_profile_toggle_recalculates_volume_and_filtration():
     app = AppTest.from_file("app.py", default_timeout=60).run()
     assert not app.exception
     next(item for item in app.radio if item.label == "Seleccionar modelo").set_value(
-        "Riverflow · módulos locales")
+        "Riverflow · NYA")
     app.run()
     assert not app.exception
     volume_with_profile = next(item for item in app.metric if item.label ==

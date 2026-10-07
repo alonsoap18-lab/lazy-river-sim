@@ -63,10 +63,14 @@ def compute_field_2d(stations: Sequence[dict], plan: RiverflowPlan,
     # Baseline shape has slower banks. Localized smooth perturbations represent
     # hypothesized lateral jet steering; their magnitude is NOT supplier data.
     bias = np.zeros_like(s)
-    for position, angle in zip(plan.module_chainages_m, plan.module_angles_deg):
+    for position, angle, bank in zip(plan.module_chainages_m, plan.module_angles_deg,
+                                     plan.module_banks):
         distance = np.minimum(abs(s - position), length - abs(s - position))
         spread = max(4.0, min(12.0, length / max(2 * plan.active_modules, 1)))
-        bias += (0.055 * np.cos(np.deg2rad(angle))
+        # eta=1 is the DXF outer bank; a negative streamfunction bias shifts
+        # longitudinal speed toward it. This remains an uncalibrated preview.
+        side = -1 if bank == "Exterior" else 1
+        bias += side * (0.055 * np.cos(np.deg2rad(angle))
                  + 0.035 * np.sin(np.deg2rad(angle))) * np.exp(-0.5 * (distance / spread) ** 2)
     bias = np.clip(bias, -0.15, 0.15)
     q = plan.equivalent_channel_flow_m3_h / 3600.0

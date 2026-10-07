@@ -97,6 +97,8 @@ class RiverflowPlan:
     total_motor_nameplate_hp: float
     module_chainages_m: tuple[float, ...]
     module_angles_deg: tuple[float, ...]
+    module_banks: tuple[str, ...]
+    module_flows_full_speed_m3_h: tuple[float, ...]
     placement_effectiveness: float
     max_current_distance_to_module_m: float
     station_velocities_m_s: tuple[float, ...]
@@ -154,8 +156,10 @@ def compute_riverflow_plan(
     curve_mode: str = "photo",
     module_chainages_m: Optional[Sequence[float]] = None,
     module_angles_deg: Optional[Sequence[float]] = None,
+    module_banks: Optional[Sequence[str]] = None,
     beach_geometry: Optional[BeachGeometry] = None,
     module_flow_full_speed_override_m3_h: Optional[float] = None,
+    module_flows_full_speed_m3_h: Optional[Sequence[float]] = None,
 ) -> RiverflowPlan:
     if len(stations) < 2:
         raise ValueError("El DXF debe producir al menos dos secciones de canal.")
@@ -173,6 +177,13 @@ def compute_riverflow_plan(
         raise ValueError("El caudal por unidad debe ser positivo y finito.")
     if active_modules < 1 or standby_modules < 0:
         raise ValueError("Debe existir al menos una unidad activa.")
+    per_module_flows = tuple(float(q) for q in (
+        module_flows_full_speed_m3_h if module_flows_full_speed_m3_h is not None
+        else (module_flow_full_speed_m3_h,) * active_modules))
+    if (len(per_module_flows) != active_modules or
+            any(not isfinite(q) or q <= 0 for q in per_module_flows)):
+        raise ValueError("Indique un caudal positivo por cada unidad activa.")
+    module_flow_full_speed_m3_h = sum(per_module_flows) / active_modules
     if not 0 < speed_fraction <= 1 or not 0 < transfer_fraction <= 1:
         raise ValueError("Las fracciones de velocidad y energía útil deben estar entre 0 y 1.")
 
@@ -185,6 +196,9 @@ def compute_riverflow_plan(
                                       else (0.0,) * active_modules))
     if len(angles) != active_modules or any(not isfinite(a) or abs(a) > 75 for a in angles):
         raise ValueError("Indique un ángulo entre -75° y 75° por unidad activa.")
+    banks = tuple(module_banks if module_banks is not None else ("Exterior",) * active_modules)
+    if len(banks) != active_modules or any(b not in ("Exterior", "Interior") for b in banks):
+        raise ValueError("Indique margen Interior o Exterior por cada unidad activa.")
     current_widths = [float(s["width_m"]) for s, z in zip(stations, zones) if z == "current"]
     reference_width = median(current_widths or [float(s["width_m"]) for s in stations])
     # Explicit, uncalibrated coupling sensitivity. A jet angled away from the
@@ -196,7 +210,8 @@ def compute_riverflow_plan(
         local_width = float(nearest["width_m"])
         width_score = min(1.0, sqrt(reference_width / local_width))
         scores.append(width_score * cos(radians(angle)) ** 2)
-    placement_effectiveness = sum(scores) / active_modules
+    placement_effectiveness = (sum(q * score for q, score in zip(per_module_flows, scores)) /
+                               sum(per_module_flows))
     if beach_geometry is not None and len(beach_geometry.area_m2) != len(stations):
         raise ValueError("La geometría de playa debe corresponder a las estaciones del DXF.")
     section_areas = tuple(beach_geometry.area_m2 if beach_geometry is not None else
@@ -235,7 +250,7 @@ def compute_riverflow_plan(
 
     # Affinity-law scaling is an estimate; the real flow at each speed depends
     # on the manufacturer H-Q curve and the installed local hydraulic network.
-    operating_flow_m3_h = active_modules * module_flow_full_speed_m3_h * speed_fraction
+    operating_flow_m3_h = sum(per_module_flows) * speed_fraction
     target_flow_m3_h = volume_m3 * 60 / target_lap_min
     # Scenario-only energy balance: useful local-pump hydraulic power drives a
     # uniform longitudinal through-flow against Manning channel friction.
@@ -329,7 +344,9 @@ def compute_riverflow_plan(
         active_motor_nameplate_hp=active_modules * RIVERFLOW_MOTOR_HP,
         total_motor_nameplate_hp=(active_modules + standby_modules) * RIVERFLOW_MOTOR_HP,
         module_chainages_m=positions, station_velocities_m_s=station_velocities,
-        module_angles_deg=angles, placement_effectiveness=placement_effectiveness,
+        module_angles_deg=angles, module_banks=banks,
+        module_flows_full_speed_m3_h=per_module_flows,
+        placement_effectiveness=placement_effectiveness,
         max_current_distance_to_module_m=max(current_distances) if current_distances else 0.0,
         station_zones=zones,
         station_areas_m2=section_areas,

@@ -29,6 +29,7 @@ class BeachGeometry:
     ramp_slope: float
     beach_end_depth_at_widest_m: float
     profile_fits_slope_limit: bool
+    flat_entry_width_m: float | None = None
 
 
 def _wide_runs(stations: Sequence[dict], threshold_m: float) -> list[list[int]]:
@@ -57,7 +58,8 @@ def compute_beach_geometry(stations: Sequence[dict], depth_m: float,
                            calm_width_m: float = 15.0,
                            first_share: float = 1 / 3,
                            minimum_slope: float = 0.02,
-                           maximum_slope: float = 0.07) -> BeachGeometry:
+                           maximum_slope: float = 0.07,
+                           flat_ramp_slope: float | None = None) -> BeachGeometry:
     """Fit the 1:2 section to the widest DXF bay, leaving other bays deep.
 
     At the widest section, the first third rises by one sixth of the channel
@@ -74,6 +76,8 @@ def compute_beach_geometry(stations: Sequence[dict], depth_m: float,
     if (depth_m <= 0 or calm_width_m <= 0 or not 0 < first_share < 1 or
             not 0 < minimum_slope <= maximum_slope):
         raise ValueError("Profundidad, proporciones y pendientes de playa inválidas.")
+    if flat_ramp_slope is not None and (not isfinite(flat_ramp_slope) or flat_ramp_slope <= 0):
+        raise ValueError("La pendiente de la rampa debe ser positiva.")
 
     widths = [float(s["width_m"]) for s in stations]
     current_widths = [w for w in widths if w < calm_width_m]
@@ -104,10 +108,16 @@ def compute_beach_geometry(stations: Sequence[dict], depth_m: float,
     ramp_length_max = max_extra * (1 - first_share)
     if first_length_max <= 0 or ramp_length_max <= 0:
         raise ValueError("La playa no tiene ancho adicional respecto al canal.")
-    first_required = depth_m / 6 / first_length_max
-    ramp_required = depth_m * 5 / 6 / ramp_length_max
-    first_slope = min(max(first_required, minimum_slope), maximum_slope)
-    ramp_slope = min(max(ramp_required, minimum_slope), maximum_slope)
+    if flat_ramp_slope is None:
+        first_required = depth_m / 6 / first_length_max
+        ramp_required = depth_m * 5 / 6 / ramp_length_max
+        first_slope = min(max(first_required, minimum_slope), maximum_slope)
+        ramp_slope = min(max(ramp_required, minimum_slope), maximum_slope)
+    else:
+        first_required = 0.0
+        ramp_required = depth_m / ramp_length_max
+        first_slope = 0.0
+        ramp_slope = flat_ramp_slope
     end_depth_max = max(0.0, depth_m - first_slope * first_length_max -
                         ramp_slope * ramp_length_max)
     fits = (first_required <= maximum_slope and ramp_required <= maximum_slope and
@@ -139,7 +149,7 @@ def compute_beach_geometry(stations: Sequence[dict], depth_m: float,
             # One wall bounds the channel; the other bounds the beach only
             # where its DXF edge remains submerged.
             wall = depth_m + edge_depth
-            wet_width = base_width + min(first_length, depth_m / first_slope) + min(
+            wet_width = base_width + min(first_length, depth_m / first_slope if first_slope else first_length) + min(
                 ramp_length, depth_after_first / ramp_slope)
         areas.append(area)
         floors.append(floor)
@@ -158,4 +168,5 @@ def compute_beach_geometry(stations: Sequence[dict], depth_m: float,
         channel_reference_width_m=reference_width,
         beach_max_extra_width_m=max_extra, first_slope=first_slope,
         ramp_slope=ramp_slope, beach_end_depth_at_widest_m=end_depth_max,
-        profile_fits_slope_limit=fits)
+        profile_fits_slope_limit=fits,
+        flat_entry_width_m=first_length_max if flat_ramp_slope is not None else None)

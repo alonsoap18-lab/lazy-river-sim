@@ -50,8 +50,9 @@ Es un **modelo preliminar de sensibilidad**, no diseño ejecutivo, CFD validado,
 | **Acabado propuesto de paredes** | Piedra impermeabilizada, concreto texturizado o personalizado. | Cambia los valores iniciales de Manning de paredes. Son hipótesis; definir material y rugosidad final después. |
 | **Manning n · piso liso** | Valor entre 0,010 y 0,035; base 0,013. | Afecta la resistencia del fondo y, en este modelo, la corriente y la vuelta mediante el balance energético supuesto. |
 | **Manning n · paredes de corriente / playa** | Rugosidad por tipo de sección; base según acabado. | Se combina con el piso ponderando perímetro mojado. Mayor n reduce la corriente prevista bajo el supuesto de energía útil fija. La «pared de playa» aplica a secciones anchas, no mide la textura real de cada margen. |
-| **Aplicar cotas proporcionales al DXF** | Activar si se desea una playa principal inclinada. | Solo el mayor ensanchamiento recibe el perfil hasta la orilla; otras bahías siguen profundas. Cambia volumen, área, resistencia, vuelta y filtración. Es una geometría supuesta porque el DXF no trae la línea de fondo. |
-| **Fracción de playa en primera transición** | Porcentaje del ancho adicional usado para el primer tramo; base 33 %. | El resto forma la rampa final. Afecta pendientes y volumen. Si la pendiente requerida supera el intervalo de prueba de 2–7 %, la app lo advierte y no inventa una salida seca. |
+| **Aplicar cotas proporcionales al DXF** | Activar el perfil preliminar de la playa principal. | Solo el mayor ensanchamiento recibe un tramo plano y una rampa; las otras bahías siguen profundas. Cambia volumen, área, resistencia, vuelta y filtración. El DXF no trae cotas de fondo. |
+| **Fracción plana de playa** | Porcentaje del ancho extra que conserva 1,20 m de profundidad; base 62 %, equivalente aproximadamente a 16 de 26 m. | El ancho restante recibe la rampa. Se adapta proporcionalmente al DXF sin inventar metros fuera del plano. |
+| **Pendiente de rampa de playa** | Pendiente propuesta; base 6,5 %. | Si no alcanza cota de arena seca, la app muestra la profundidad restante en el borde DXF. Con los valores iniciales quedan aproximadamente 0,64 m: no es una salida seca validada. |
 | **Objetivo de tiempo por vuelta** | Meta de operación; base 40 min. | Calcula Q longitudinal **requerido** y diferencia respecto al escenario. No hace que las bombas suministren automáticamente ese caudal. |
 | **Unidades activas** | Cantidad de Riverflow operando; base 19. | Afecta descarga local total, potencia útil supuesta, corriente y vuelta. No equivale a bombas de filtración. |
 | **Unidades de reserva** | Equipos adicionales apagados; base 1. | Suman HP nominal instalado, pero **no** aportan caudal en el escenario normal. |
@@ -61,12 +62,14 @@ Es un **modelo preliminar de sensibilidad**, no diseño ejecutivo, CFD validado,
 | **Longitud succión / descarga** | Metros de tubería de **una** unidad, no suma de todas. | Afecta pérdidas Darcy–Weisbach y el punto de operación. Introducir longitudes reales cuando exista plano. |
 | **Diámetro interior succión / descarga** | Diámetro hidráulico real en m; referencia inicial ≈0,303 m para PVC Sch 40 nominal 12″. | Afecta velocidad y fricción de tubería. No escribir 12 ni usar diámetro exterior. La referencia no fija material NYA. |
 | **K tomas/accesorios, K descarga y K salida** | Suma de coeficientes adimensionales de cada circuito local. | Afecta TDH y caudal por unidad. Todos son hipótesis iniciales; cambiar de salida «7 puertos» a «3 puertos» **no** modifica K automáticamente. |
+| **Editar tuberías y pérdidas por unidad** | Tabla RF-01, RF-02, etc. con longitudes, diámetros interiores y K propios. | Calcula un punto H–Q por unidad y suma sus caudales para el escenario activo. Las matrices que cambian la cantidad de unidades siguen suponiendo un circuito común. |
 | **Desnivel neto del circuito** | Diferencia de nivel que la bomba debe superar, en m. Base 0. | Añade carga local. Un río cerrado no implica que cualquier circuito de toma/descarga tenga desnivel neto exactamente cero. |
 | **TDH local manual a plena velocidad** | Valor en **ft** cuando el circuito automático está desactivado. | Selecciona Q en la curva Riverflow. No sumar esta TDH a la pérdida longitudinal del río; son circuitos distintos. |
 | **Energía útil para mover el río** | Fracción supuesta de potencia hidráulica que sostiene la corriente; base 2 %. | Es uno de los datos **más inciertos**. Cambia considerablemente Q longitudinal y vuelta. No proviene de Riverflow ni de medición NYA; siempre comparar varios valores. |
 | **Salida propuesta** | 7 puertos o manifold de 3 puertos. | Registra la opción en equipos. No recalcula pérdidas por sí sola; para ello editar K con fundamento. |
 | **Ubicación de unidades** | Automática o lista manual de progresivas en m. | La automática evita zonas clasificadas como calmas. La manual exige una posición por unidad y puede situarlas en una bahía; aparece aviso. Cambia el acoplamiento geométrico supuesto y el mapa. |
-| **Orientación de descargas** | Ángulo común o una lista de ángulos por unidad; 0° sigue el sentido antihorario. | Influye en eficacia propuesta y campo 2D; no reproduce el chorro físico real. Valores positivos apuntan hacia la margen exterior según la convención del modelo. |
+| **Orientación de descargas** | Ángulo común o una lista por unidad; 0° sigue el sentido antihorario. | Influye en eficacia propuesta y campo 2D; no reproduce el chorro real. Valores positivos se inclinan hacia la margen elegida para la unidad. |
+| **Margen por unidad** | E = exterior del circuito DXF; I = interior, una letra por RF. | Cambia el esquema 2D/3D y el reparto lateral hipotético. No cambia por sí sola el caudal longitudinal ni certifica que esa orilla sea segura. El exterior de una curva puede ser E o I. |
 | **Recirculación de filtración** | Horas por volumen equivalente; base 4 h. | Q filtración = volumen/horas. No cambia el caudal Riverflow ni representa agua nueva del pozo. La elección sanitaria final debe confirmarse para Liberia. |
 
 ### Cómo leer el resumen Riverflow
@@ -78,7 +81,7 @@ Es un **modelo preliminar de sensibilidad**, no diseño ejecutivo, CFD validado,
 - **Vuelta central 2D:** trayectoria del campo lateral conceptual. Puede diferir de V/Q porque describe otra ruta y una distribución hipotética.
 - **Motores activos · placa:** 10 HP por unidad activa. No es kW consumidos, costo anual ni curva de potencia.
 - **Filtración separada:** caudal que debe pasar por filtros, no por las unidades de propulsión.
-- **Q por unidad según curva:** caudal estimado de una unidad al punto de operación elegido; multiplicarlo por las unidades activas da el caudal local total mostrado. No es el caudal que atraviesa una sección completa del canal.
+- **Q por unidad según curva:** con circuito común es el caudal estimado de cada unidad; con circuitos individuales la métrica muestra un promedio y la tabla de Hidráulica da el valor de cada RF. El total es la suma de todas las unidades activas, no el caudal que atraviesa una sección completa del canal.
 
 ## 3. Qué hace cada pestaña
 
@@ -102,6 +105,8 @@ Muestra paredes del DXF, playa principal proporcional, bombas locales, tomas, de
 Controles: **Mostrar montaje conceptual** agrega símbolos de instalación; **Colorear campo 2D** enciende/apaga el color; **Auditar secciones perpendiculares** compara anchos y área integrada del modelo frente al contorno DXF; **Intervalo de auditoría** define cada cuántos metros se revisa, **no** el ancho del río. La diferencia de áreas y las secciones señaladas indican geometría por revisar. El mapa no predice remolinos ni variación real de una orilla a otra.
 
 **Resultados de esta página:** «Área por secciones» es la suma aproximada de áreas obtenidas de los cortes; «Área del contorno DXF» es el área en planta del dibujo; «Diferencia de áreas» ayuda a detectar discordancias de geometría y muestreo. «Campo 2D mín–máx» resume las velocidades del campo conceptual, no mediciones. «Residuo numérico de caudal» expresa cuánto se desvía el caudal reconstruido de la condición que el modelo intentó conservar; un residuo pequeño verifica consistencia interna, **no** exactitud física. «Mayor distancia de canal a una unidad» identifica el tramo de corriente más alejado de una instalación propuesta; no demuestra por sí sola falta de empuje.
+
+**Comparar ubicación de bombas:** muestra la distribución activa, otra equilibrada por distancia/fricción y una tercera que examina curvas. La tabla de curvas identifica la margen exterior de cada giro, que no siempre coincide con la margen exterior del circuito. El botón de prueba aplica posiciones y márgenes editables; la comparación visual mantiene el mismo caudal longitudinal para aislar el cambio de ubicación. Ninguna alternativa calcula alcance real del chorro, turbulencia o seguridad de succión.
 
 ### Explicación
 
@@ -216,7 +221,7 @@ Debajo se muestra el tratamiento como circuito independiente: volumen, horas de 
 
 ### Equipos
 
-Lista unidades RF-01, RF-02, etc., progresiva, caudal estimado, 10 HP de placa y tipo de salida. **Descargar listado CSV** exporta ese escenario. Resume unidades activas/de reserva e infraestructura por prever: estación mecánica local, área eléctrica protegida y planta de tratamiento separada. El plano Riverflow recibido es de otro proyecto, no es plano de construcción NYA.
+Lista unidades RF-01, RF-02, etc., progresiva, margen, caudal estimado, 10 HP de placa y tipo de salida. **Descargar listado CSV** exporta ese escenario, incluidos los caudales individuales si se editaron sus circuitos. Resume unidades activas/de reserva e infraestructura por prever: estación mecánica local, área eléctrica protegida y planta de tratamiento separada. El plano Riverflow recibido es de otro proyecto, no es plano de construcción NYA.
 
 ### Planos e instalación
 
