@@ -416,84 +416,6 @@ def make_count_chart(plan):
     return fig
 
 
-def simulated_positions(stations, section_areas_m2, time_phases):
-    """Positions along a Q/A travel-time coordinate; not a CFD particle model."""
-    if np.isscalar(section_areas_m2):
-        # Preserve callers that provide uniform depth rather than areas.
-        section_areas_m2 = [float(s["width_m"]) * float(section_areas_m2)
-                            for s in stations]
-    cumulative_volume = [0.0]
-    for i, (previous, current) in enumerate(zip(stations, stations[1:])):
-        ds = float(current["chainage_m"] - previous["chainage_m"])
-        mean_area = (section_areas_m2[i] + section_areas_m2[i + 1]) / 2
-        cumulative_volume.append(cumulative_volume[-1] + ds * mean_area)
-    if cumulative_volume[-1] <= 0:
-        raise ValueError("No se puede animar un recorrido sin volumen positivo.")
-    fractions = np.asarray(cumulative_volume) / cumulative_volume[-1]
-    phases = np.mod(np.asarray(time_phases, dtype=float), 1.0)
-    return (np.interp(phases, fractions, [s["x"] for s in stations]),
-            np.interp(phases, fractions, [s["y"] for s in stations]))
-
-
-def simulated_field_positions(field, time_phases):
-    phases = np.mod(np.asarray(time_phases, dtype=float), 1.0)
-    travel_fraction = field.center_lane_time_min / field.center_lane_time_min[-1]
-    return (np.interp(phases, travel_fraction, field.center_lane_x),
-            np.interp(phases, travel_fraction, field.center_lane_y))
-
-
-def make_fast_simulation(model, plan, playback_multiplier, field=None):
-    """Animate a conceptual center streamline on the same 2D scenario field."""
-    frame_count = 72
-    rider_count = 8
-    lap_min = field.lane_lap_min[1] if field is not None else plan.estimated_lap_min
-    frame_ms = max(30, round(lap_min * 60_000 /
-                             (playback_multiplier * frame_count)))
-    initial_phases = np.arange(rider_count) / rider_count
-    position_fn = (lambda phases: simulated_field_positions(field, phases)) if field is not None else (
-        lambda phases: simulated_positions(model.stations, plan.station_areas_m2, phases))
-    x0, y0 = position_fn(initial_phases)
-    fig = go.Figure()
-    add_velocity_areas(fig, model, plan, field)
-    fig.add_trace(go.Scatter(x=[s["x"] for s in model.stations],
-                             y=[s["y"] for s in model.stations], mode="lines",
-                             name="Centro del canal · antihorario",
-                             line=dict(color="#334155", width=1)))
-    fig.add_trace(go.Scatter(
-        x=[model.stations[0]["x"]], y=[model.stations[0]["y"]],
-        mode="markers", name="Inicio y fin · playa principal",
-        marker=dict(size=16, color="#be185d", symbol="star",
-                    line=dict(color="white", width=2)),
-        hovertemplate="Inicio/fin de vuelta · playa principal<extra></extra>"))
-    fig.add_trace(go.Scatter(x=x0, y=y0, mode="markers", name="Personas con chaleco o barra de espuma · ilustración",
-                             marker=dict(size=13, color="#f97316", line=dict(color="white", width=1))))
-    rider_trace = len(fig.data) - 1
-    frames = []
-    for frame in range(frame_count):
-        phases = (initial_phases + frame / frame_count) % 1.0
-        xs, ys = position_fn(phases)
-        frames.append(go.Frame(name=str(frame), data=[go.Scatter(x=xs, y=ys,
-                           mode="markers", marker=dict(size=13, color="#f97316",
-                                                       line=dict(color="white", width=1)),
-                           text=[f"Persona {i+1} · deriva pasiva supuesta" for i in range(rider_count)],
-                           hovertemplate="%{text}<extra></extra>")], traces=[rider_trace]))
-    fig.frames = frames
-    fig.update_layout(height=540, margin=dict(l=10, r=10, t=20, b=10),
-                      xaxis=dict(visible=False), yaxis=dict(visible=False, scaleanchor="x"),
-                      showlegend=True,
-                      updatemenus=[dict(type="buttons", direction="left", x=0, y=1.12,
-                                        buttons=[dict(label="▶ Reproducir", method="animate",
-                                                      args=[None, {"frame": {"duration": frame_ms,
-                                                                              "redraw": True},
-                                                                   "transition": {"duration": 0},
-                                                                   "fromcurrent": True}]),
-                                                 dict(label="⏸ Pausar", method="animate",
-                                                      args=[[None], {"mode": "immediate",
-                                                                     "frame": {"duration": 0,
-                                                                               "redraw": False}}])])])
-    return fig
-
-
 def make_csv(plan, nozzle_type):
     output = io.StringIO()
     writer = csv.writer(output)
@@ -997,21 +919,20 @@ def main():
     # the decision sheet. The optional 3D view reuses the active plan rather
     # than solving a second hydraulic scenario.
     (tab_decision, tab_map, tab_hydraulic, tab_filtration, tab_scenarios,
-     tab_equipment, tab_sph, tab_references) = st.tabs(
+     tab_equipment, tab_flow, tab_references) = st.tabs(
         ["Decisión · escenario hipotético", "Plano y recorrido 2D/3D", "Hidráulica Riverflow",
          "Filtración", "Comparar escenarios", "Equipos e instalación",
-         "Simulación SPH · ensayo", "Fuentes y límites"])
+         "Estudio de flujo · mover bombas", "Fuentes y límites"])
     with tab_decision:
         decision_content = st.container()
         tab_explain = st.expander("Cómo interpretar los resultados", expanded=False)
     tab_decision = decision_content
     with tab_map:
         map_content = st.container()
-        tab_fast = st.expander("Recorrido animado · ilustrativo", expanded=False)
     tab_map = map_content
     with tab_hydraulic:
         hydraulic_content = st.container()
-        with st.expander("Laboratorio 2D · pruebas no aptas para compra", expanded=False):
+        with st.expander("Archivo técnico · ensayos 2D anteriores", expanded=False):
             tab_momentum, tab_cfd = st.tabs(
                 ["Sensibilidad del 2 %", "Simulación experimental"])
     tab_hydraulic = hydraulic_content
@@ -1023,12 +944,19 @@ def main():
         tab_plans = st.expander("Planos y detalles de instalación", expanded=False)
     tab_equipment = equipment_content
 
-    with tab_sph:
-        render_sph_sheet(
-            length_m=target_length_m, depth_m=depth_m,
-            pump_count=active_modules, speed_fraction=speed_pct / 100,
-            uploaded_dxf=uploaded is not None, nozzle_type=nozzle_type,
-            chainages_m=plan.module_chainages_m, banks=plan.module_banks)
+    with tab_flow:
+        st.info("Dos ensayos diferentes: mover una bomba recalcula el campo 2D exploratorio; "
+                "la hoja SPH muestra una corrida precomputada y no cambia al arrastrar.")
+        edit_flow, sph_result = st.tabs(["Mover bombas · campo 2D", "SPH · corrida guardada"])
+        with edit_flow:
+            from experiments.splishsplash_nya_pilot.depth2d_pilot import render_lab
+            render_lab(embedded=True)
+        with sph_result:
+            render_sph_sheet(
+                length_m=target_length_m, depth_m=depth_m,
+                pump_count=active_modules, speed_fraction=speed_pct / 100,
+                uploaded_dxf=uploaded is not None, nozzle_type=nozzle_type,
+                chainages_m=plan.module_chainages_m, banks=plan.module_banks)
 
     with tab_map:
         st.info(f"Circulación antihoraria. La progresiva 0/{model.geometry.channel_length_m:.0f} m "
@@ -1707,28 +1635,6 @@ def main():
                     "(4) refinar este campo 2D y estudiar en CFD 3D solo las zonas críticas; "
                     "(5) mantener filtración, aforo y seguridad como evaluaciones separadas. "
                     "Ninguna de estas simulaciones sustituye la verificación antes de construir.")
-
-    with tab_fast:
-        st.subheader("Vuelta conceptual acelerada · sentido antihorario")
-        playback = st.select_slider("Velocidad de reproducción", [60, 120, 300, 600], value=300,
-                                    format_func=lambda value: f"{value}×",
-                                    help="Acelera solo la animación. No cambia RPM, caudal ni tiempo físico de vuelta.")
-        p1, p2, p3 = st.columns(3)
-        p1.metric("Vuelta carril central · escenario 2D", f"{field.lane_lap_min[1]:.1f} min")
-        p2.metric("Reproducción", f"{playback}×")
-        p3.metric("Duración de un ciclo en pantalla", f"{field.lane_lap_min[1] * 60 / playback:.1f} s")
-        if st.checkbox("Cargar animación rápida del recorrido", value=False,
-                       key="rf_load_fast_sim"):
-            st.plotly_chart(make_fast_simulation(model, plan, playback, field),
-                            width="stretch")
-        else:
-            st.info("Active la animación cuando quiera verla. Los cálculos y los mapas "
-                    "permanecen disponibles sin cargar sus fotogramas en cada cambio.")
-        st.caption("Pulsa ▶ en la gráfica. Los puntos ilustran personas que se dejan llevar "
-                   "con chaleco salvavidas o barra de espuma; no son flotadores independientes. "
-                   "El campo 2D conceptual cambia con ancho, margen y ubicación de módulos. "
-                   "No se modelan patadas, braceo, viento, interacción entre personas, "
-                   "remolinos ni CFD. La reproducción acelerada no modifica los resultados.")
 
     with tab_momentum:
         st.subheader("Ensayo 2D de momento longitudinal · separado del diseño base")
