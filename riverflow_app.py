@@ -48,6 +48,7 @@ from core.riverflow_placement import (cumulative_manning_resistance,
                                       placement_gaps,
                                       suggest_friction_balanced_positions,
                                       suggest_curve_aware_positions)
+from core.sph_public_sheet import render_sph_sheet
 
 
 MODEL_VERSION = "riverflow-geometry-treatment-12-banks-flat-beach"
@@ -923,10 +924,10 @@ def main():
     # the decision sheet. The optional 3D view reuses the active plan rather
     # than solving a second hydraulic scenario.
     (tab_decision, tab_map, tab_hydraulic, tab_filtration, tab_scenarios,
-     tab_equipment, tab_references) = st.tabs(
+     tab_equipment, tab_sph, tab_references) = st.tabs(
         ["Decisión", "Plano y recorrido 2D/3D", "Hidráulica Riverflow",
          "Filtración", "Comparar escenarios", "Equipos e instalación",
-         "Fuentes y límites"])
+         "Simulación SPH · ensayo", "Fuentes y límites"])
     with tab_decision:
         decision_content = st.container()
         tab_explain = st.expander("Cómo interpretar los resultados", expanded=False)
@@ -948,6 +949,13 @@ def main():
         equipment_content = st.container()
         tab_plans = st.expander("Planos y detalles de instalación", expanded=False)
     tab_equipment = equipment_content
+
+    with tab_sph:
+        render_sph_sheet(
+            length_m=target_length_m, depth_m=depth_m,
+            pump_count=active_modules, speed_fraction=speed_pct / 100,
+            uploaded_dxf=uploaded is not None, nozzle_type=nozzle_type,
+            chainages_m=plan.module_chainages_m, banks=plan.module_banks)
 
     with tab_map:
         st.info(f"Circulación antihoraria. La progresiva 0/{model.geometry.channel_length_m:.0f} m "
