@@ -153,6 +153,10 @@ def render_sph_sheet(*, length_m: float, depth_m: float, pump_count: int,
             "Riverflow —incluidos Manning, playa y bombas— no recalcula SPlisHSPlasH. "
             "Para comparar otro diseño se necesita "
             "una nueva corrida local y una exportación verificada.")
+    st.caption("Para publicar una vuelta SPH como estimación se exigirán corridas repetidas, "
+               "corriente estable por secciones, una comparación con partículas más finas "
+               "y un tratamiento explícito de la rugosidad, playa y siete puertos. "
+               "La corrida actual no cumple esas condiciones.")
     if differences:
         st.warning("El escenario activo difiere de esta corrida en: " +
                    ", ".join(differences) + ". No compare directamente sus velocidades o vueltas.")
