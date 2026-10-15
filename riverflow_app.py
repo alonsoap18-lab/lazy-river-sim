@@ -264,14 +264,8 @@ def make_map(model, plan, show_installation=True, show_velocity_heatmap=True, fi
                                  marker=dict(size=8, color="#16a34a", symbol="triangle-up")))
         fig.add_trace(go.Scatter(x=flow_x, y=flow_y, mode="lines", name="Dirección propuesta de flujo",
                                  line=dict(color="#16a34a", width=2), hoverinfo="skip"))
-    if show_installation:
-        marker_x, marker_y = pump_x, pump_y
-    else:
-        nearest = [min(model.stations,
-                       key=lambda station: abs(station["chainage_m"] - position))
-                   for position in plan.module_chainages_m]
-        marker_x = [station["x"] for station in nearest]
-        marker_y = [station["y"] for station in nearest]
+    # Hiding the plumbing must not move the pump symbols to the centreline.
+    marker_x, marker_y = pump_x, pump_y
     for bank, color, symbol in (("Exterior", "#ea580c", "diamond"),
                                 ("Interior", "#7c3aed", "square")):
         selected = [i for i, assigned in enumerate(plan.module_banks)
@@ -444,8 +438,10 @@ def main():
         max_value=2000.0, value=536.0, step=1.0,
         help="Escala longitud y anchos con el mismo factor. Ningún ancho fijo reemplaza el DXF.")
     depth_m = st.sidebar.number_input("Profundidad de agua (m)", 0.4, 3.0, 1.2, 0.05)
-    calm_width_m = st.sidebar.number_input("Zona calma desde ancho (m)", 4.0, 40.0, 15.0, 0.5,
-                                           help="Las partes anchas del DXF se tratan como entradas a playa.")
+    calm_width_m = st.sidebar.number_input(
+        "Umbral para localizar la playa principal (m)", 4.0, 40.0, 15.0, 0.5,
+        help="Identifica la playa principal del DXF para el perfil. Con ese perfil activo, "
+             "las otras partes anchas siguen siendo zonas de circulación, no zonas calmas.")
     st.sidebar.subheader("Acabados y resistencia del canal")
     wall_finish = st.sidebar.selectbox(
         "Acabado propuesto de paredes",
@@ -1028,13 +1024,53 @@ def main():
                 f"{inner_count} RF interiores (cuadrado morado). "
                 "Exterior/interior se refiere al circuito completo; el lado exterior "
                 "de cada curva puede ser cualquiera de los dos.")
+        st.caption("Con el perfil de playa activo, solo la playa principal de entrada/salida "
+                   "es zona calma; los demás ensanchamientos del DXF siguen siendo tramos "
+                   "de circulación. La orilla propuesta y la orientación son hipótesis "
+                   "geométricas, no una optimización CFD ni una garantía de seguridad.")
+        with st.expander("Revisar posición y orilla de cada bomba", expanded=False):
+            review_bends = curve_candidates(model.stations, plan.station_zones,
+                                            model.geometry.scale_m_per_unit)
+            review_rows = []
+            length = plan.length_m
+            for number, position in enumerate(plan.module_chainages_m, 1):
+                station_index = min(range(len(model.stations)), key=lambda i:
+                                    min(abs(model.stations[i]["chainage_m"] - position),
+                                        length - abs(model.stations[i]["chainage_m"] - position)))
+                station = model.stations[station_index]
+                nearest_bend = (min(review_bends, key=lambda bend:
+                                min(abs(bend.candidate_m - position),
+                                    length - abs(bend.candidate_m - position)))
+                                if review_bends else None)
+                bend_distance = (min(abs(nearest_bend.candidate_m - position),
+                                     length - abs(nearest_bend.candidate_m - position))
+                                 if nearest_bend else None)
+                criterion = ("Curva cercana · criterio geométrico" if bend_distance is not None
+                             and bend_distance <= max(12.0, .55 * length / plan.active_modules)
+                             else "Equilibrio de separación/resistencia")
+                if placement_mode != "Automática":
+                    criterion = "Posición y margen editados"
+                review_rows.append({
+                    "Unidad": f"RF-{number:02d}",
+                    "Progresiva (m)": round(position, 1),
+                    "Ancho DXF (m)": round(float(station["width_m"]), 1),
+                    "Zona": "Playa principal" if plan.station_zones[station_index] == "calm"
+                            else "Circulación",
+                    "Orilla": plan.module_banks[number - 1],
+                    "Ángulo (°)": round(plan.module_angles_deg[number - 1], 1),
+                    "Criterio": criterion,
+                })
+            st.dataframe(review_rows, width="stretch", hide_index=True)
+            st.caption("Las curvas se detectan con ventanas de 10 m sobre el DXF. "
+                       "Estar cerca de una curva no demuestra que el chorro la atraviese; "
+                       "la playa y las tomas requieren revisión de seguridad independiente.")
         if placement_mode != "Automática":
             st.button("Activar propuesta automática de curvas y márgenes",
                       on_click=lambda: st.session_state.update(
                           riverflow_placement_mode="Automática"),
                       help="Conserva tus valores manuales para volver a ellos después.")
         st.plotly_chart(make_map(model, plan, show_installation, show_heatmap, field,
-                                 section_checks), width="stretch")
+                                 section_checks), width="stretch", key="rf_main_2d_map")
         if section_checks is not None:
             flagged_checks = [check for check in section_checks if check.status != "Consistente"]
             c_a, c_b, c_c = st.columns(3)
@@ -1067,10 +1103,15 @@ def main():
         fm1.metric("Campo 2D · mín–máx", f"{np.min(field.speed_m_s):.3f}–{np.max(field.speed_m_s):.3f} m/s")
         fm2.metric("Vuelta carril central 2D", f"{field.lane_lap_min[1]:.1f} min")
         fm3.metric("Residuo numérico de caudal", f"{field.volume_residual_fraction:.2%}")
+        if abs(field.lane_lap_min[1] / plan.estimated_lap_min - 1) > .10:
+            st.warning(f"Dos hipótesis de tiempo distintas: V/Q uniforme = "
+                       f"{plan.estimated_lap_min:.1f} min; carril central 2D = "
+                       f"{field.lane_lap_min[1]:.1f} min. El campo lateral no está calibrado "
+                       "y no confirma la duración real de una vuelta.")
         st.metric("Longitud del circuito", f"{plan.length_m:.0f} m")
         z1, z2 = st.columns(2)
         z1.metric("Canal de corriente", f"{plan.current_zone_length_m:.0f} m")
-        z2.metric("Bahías y zonas calmas", f"{plan.calm_zone_length_m:.0f} m")
+        z2.metric("Playa principal · tramo calmo", f"{plan.calm_zone_length_m:.0f} m")
         st.metric("Mayor distancia de canal a una unidad", f"{plan.max_current_distance_to_module_m:.0f} m",
                   help="Distancia más larga, medida sobre el recorrido cerrado, desde una sección de corriente hasta la unidad activa más cercana. Cambia al mover unidades; no equivale a alcance hidráulico de la descarga.")
         with st.expander("Comparar ubicación de bombas · fricción y continuidad", expanded=False):
@@ -2133,10 +2174,12 @@ def main():
         alternative_filters_out = st.number_input("Filtros fuera de servicio · alternativa",
                                                    0, installed_filters, unavailable_filters, 1)
         if alternative_modules == active_modules:
-            alternative_positions = manual_positions
-            alternative_angles = module_angles
+            alternative_positions = plan.module_chainages_m
+            alternative_banks = plan.module_banks
+            alternative_angles = plan.module_angles_deg
         else:
             alternative_positions = None
+            alternative_banks = None
             alternative_angles = [0.0] * alternative_modules
         alternative_point = None
         if use_local_circuit:
@@ -2152,8 +2195,7 @@ def main():
         alternative_head_ft = (alternative_point.pump_head_ft /
                                (alternative_speed_pct / 100) ** 2
                                if alternative_point else local_head_manual_ft)
-        alternate_plan = compute_riverflow_plan(
-            model.stations, depth_m=depth_m, target_lap_min=target_lap_min,
+        alternate_inputs = dict(depth_m=depth_m, target_lap_min=target_lap_min,
             active_modules=alternative_modules, standby_modules=standby_modules,
             module_head_full_speed_ft=alternative_head_ft,
             speed_fraction=alternative_speed_pct / 100,
@@ -2162,12 +2204,29 @@ def main():
             filtration_turnover_h=alternative_turnover_h,
             floor_manning_n=floor_n, wall_manning_n_current=wall_n_current,
             wall_manning_n_calm=wall_n_calm, curve_mode=curve_mode,
-            module_chainages_m=alternative_positions,
             module_angles_deg=alternative_angles,
             beach_geometry=beach_geometry,
             module_flow_full_speed_override_m3_h=(alternative_point.flow_m3_h /
                                                    (alternative_speed_pct / 100)
                                                    if alternative_point else None))
+        if alternative_positions is None:
+            provisional_alternative = compute_riverflow_plan(
+                model.stations, **alternate_inputs)
+            alt_perimeters = (beach_geometry.wetted_perimeter_m if beach_geometry is not None
+                              else tuple(float(s["width_m"]) + 2 * depth_m
+                                         for s in model.stations))
+            alt_resistance = cumulative_manning_resistance(
+                model.stations, provisional_alternative.station_areas_m2,
+                alt_perimeters, provisional_alternative.station_manning_n)
+            alt_bends = curve_candidates(model.stations,
+                                         provisional_alternative.station_zones,
+                                         model.geometry.scale_m_per_unit)
+            alternative_positions, alternative_banks = suggest_curve_aware_positions(
+                model.stations, alt_resistance, provisional_alternative.station_zones,
+                alternative_modules, alt_bends)
+        alternate_plan = compute_riverflow_plan(
+            model.stations, module_chainages_m=alternative_positions,
+            module_banks=alternative_banks, **alternate_inputs)
         alternate_field = compute_field_2d(model.stations, alternate_plan, depth_m,
                                            scale_m_per_unit=model.geometry.scale_m_per_unit)
         alternate_filtration = evaluate_filtration(
@@ -2184,11 +2243,13 @@ def main():
         with map_left:
             st.markdown("**Actual**")
             st.plotly_chart(make_map(model, plan, True, True, field,
-                                     color_range=common_range), width="stretch")
+                                     color_range=common_range), width="stretch",
+                            key="rf_scenario_current_map")
         with map_right:
             st.markdown("**Alternativa**")
             st.plotly_chart(make_map(model, alternate_plan, True, True, alternate_field,
-                                     color_range=common_range), width="stretch")
+                                     color_range=common_range), width="stretch",
+                            key="rf_scenario_alternate_map")
         scenario_rows = [
             {"Indicador": "Riverflow activas", "Actual": active_modules,
              "Alternativa": alternative_modules},

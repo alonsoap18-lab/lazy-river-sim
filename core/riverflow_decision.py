@@ -11,6 +11,9 @@ from typing import Optional, Sequence
 from core.beach_geometry import BeachGeometry
 from core.riverflow_2d import RiverflowField2D, compute_field_2d
 from core.riverflow_model import RiverflowPlan, compute_riverflow_plan
+from core.riverflow_placement import (cumulative_manning_resistance,
+                                      curve_candidates,
+                                      suggest_curve_aware_positions)
 
 
 @dataclass(frozen=True)
@@ -60,8 +63,7 @@ def evaluate_count_options(
         if count == current_plan.active_modules:
             plan, field = current_plan, current_field
         else:
-            plan = compute_riverflow_plan(
-                stations, depth_m=depth_m, target_lap_min=current_plan.target_lap_min,
+            inputs = dict(depth_m=depth_m, target_lap_min=current_plan.target_lap_min,
                 active_modules=count, standby_modules=current_plan.standby_modules,
                 module_head_full_speed_ft=current_plan.module_head_full_speed_ft,
                 module_flow_full_speed_override_m3_h=current_plan.module_flow_full_speed_m3_h,
@@ -73,6 +75,18 @@ def evaluate_count_options(
                 wall_manning_n_current=wall_manning_n_current,
                 wall_manning_n_calm=wall_manning_n_calm,
                 curve_mode=current_plan.curve_mode, beach_geometry=beach_geometry)
+            provisional = compute_riverflow_plan(stations, **inputs)
+            perimeters = (beach_geometry.wetted_perimeter_m if beach_geometry is not None else
+                          tuple(float(s["width_m"]) + 2 * depth_m for s in stations))
+            resistance = cumulative_manning_resistance(
+                stations, provisional.station_areas_m2, perimeters,
+                provisional.station_manning_n)
+            bends = curve_candidates(stations, provisional.station_zones,
+                                     scale_m_per_unit)
+            positions, banks = suggest_curve_aware_positions(
+                stations, resistance, provisional.station_zones, count, bends)
+            plan = compute_riverflow_plan(
+                stations, module_chainages_m=positions, module_banks=banks, **inputs)
             field = compute_field_2d(
                 stations, plan, depth_m, scale_m_per_unit=scale_m_per_unit)
         nominal = max(field.lane_lap_min)
@@ -129,6 +143,8 @@ def evaluate_decision_cases(
                 curve_mode=current_plan.curve_mode,
                 module_chainages_m=current_plan.module_chainages_m,
                 module_angles_deg=current_plan.module_angles_deg,
+                module_banks=current_plan.module_banks,
+                module_flows_full_speed_m3_h=current_plan.module_flows_full_speed_m3_h,
                 beach_geometry=beach_geometry)
             field = compute_field_2d(
                 stations, plan, depth_m, scale_m_per_unit=scale_m_per_unit)

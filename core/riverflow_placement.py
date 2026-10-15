@@ -108,6 +108,20 @@ def suggest_curve_aware_positions(stations: Sequence[dict], cumulative: Sequence
             continue
         positions = proposal
         banks[k] = curve.preferred_bank
+    # A pump already close to a bend approach needs the corresponding bend
+    # bank even when moving it to the exact candidate would violate spacing.
+    # Bank choice is geometric only; it does not create extra bulk flow.
+    bank_window_m = max(12.0, 0.55 * length / count)
+    for i, position in enumerate(positions):
+        if not candidates:
+            break
+        nearest = min(candidates, key=lambda candidate: min(
+            abs(position - candidate.candidate_m),
+            length - abs(position - candidate.candidate_m)))
+        distance = min(abs(position - nearest.candidate_m),
+                       length - abs(position - nearest.candidate_m))
+        if distance <= bank_window_m:
+            banks[i] = nearest.preferred_bank
     ordered = sorted(zip(positions, banks))
     return tuple(p for p, _ in ordered), tuple(b for _, b in ordered)
 
@@ -198,7 +212,29 @@ def suggest_friction_balanced_positions(stations: Sequence[dict],
                 chosen.append(remaining.pop(closest)[0])
             positions = tuple(sorted(chosen))
             gaps = placement_gaps(stations, cumulative, positions)
+            # Concentrating two units at the same beach transition can reduce
+            # the friction score while leaving an avoidable unpowered reach.
+            # Reject such clustering before ranking the screening layouts.
+            separations = [b - a for a, b in zip(positions, positions[1:])]
+            separations.append(chainages[-1] - positions[-1] + positions[0])
+            if min(separations) < max(12.0, 0.4 * chainages[-1] / count):
+                continue
             score = gaps.friction_imbalance + gaps.max_gap_m / (chainages[-1] / count)
             if score < best_score:
                 best_score, best = score, positions
+    if best is None:
+        # A long intentionally unpowered beach can make every closed-loop
+        # friction quantile cluster at its edges. Spread units over the
+        # eligible circulation stations instead of accepting that cluster.
+        eligible_chainages = [chainages[i] for i in eligible_indices]
+        first, last = eligible_chainages[0], eligible_chainages[-1]
+        span = last - first
+        available = eligible_chainages.copy()
+        chosen = []
+        for i in range(count):
+            target = first + (i + .5) * span / count
+            nearest = min(range(len(available)),
+                          key=lambda j: abs(available[j] - target))
+            chosen.append(available.pop(nearest))
+        best = tuple(sorted(chosen))
     return best

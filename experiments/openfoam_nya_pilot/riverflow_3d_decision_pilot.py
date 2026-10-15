@@ -204,13 +204,18 @@ def make_plot(xy, depth, chainages, widths, beach, result, positions, attraction
                                  for i, bank in zip(ix, banks)])
     tangents = xy[ix+1, xy.shape[1]//2] - xy[ix-1, xy.shape[1]//2]
     tangents /= np.linalg.norm(tangents, axis=1)[:, None]
+    outward = xy[ix, -1] - xy[ix, 0]
+    outward /= np.linalg.norm(outward, axis=1)[:, None]
     if module_angles_deg is not None:
         angles = np.deg2rad(np.asarray(module_angles_deg, dtype=float))
         if len(angles) != len(positions):
             raise ValueError("Los ángulos 3D deben coincidir con las unidades activas.")
-        tangents = np.column_stack((
-            tangents[:, 0] * np.cos(angles) - tangents[:, 1] * np.sin(angles),
-            tangents[:, 0] * np.sin(angles) + tangents[:, 1] * np.cos(angles)))
+        # Match the 2D convention: positive angles aim toward the selected
+        # bank, not toward an arbitrary global counter-clockwise direction.
+        bank_sign = np.array([1 if bank == "Exterior" else -1 for bank in banks])
+        tangents = tangents * np.cos(angles)[:, None] + (
+            outward * (bank_sign * np.sin(angles))[:, None])
+        tangents /= np.linalg.norm(tangents, axis=1)[:, None]
     for bank, color, symbol in (("Exterior", "#df743d", "diamond"),
                                 ("Interior", "#7c3aed", "square")):
         selected = [i for i, assigned in enumerate(banks) if assigned == bank]

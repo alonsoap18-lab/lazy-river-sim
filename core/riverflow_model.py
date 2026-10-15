@@ -187,8 +187,18 @@ def compute_riverflow_plan(
     if not 0 < speed_fraction <= 1 or not 0 < transfer_fraction <= 1:
         raise ValueError("Las fracciones de velocidad y energía útil deben estar entre 0 y 1.")
 
-    zones = tuple("calm" if float(s["width_m"]) >= calm_zone_width_m else "current"
-                  for s in stations)
+    # Only the main entry/exit beach is a deliberately calm zone. Other wide
+    # reaches remain part of the circulation route and need through-flow.
+    # Without a beach profile, retain the legacy width-based screening rule.
+    if beach_geometry is not None:
+        beach_indices = set(beach_geometry.beach_indices)
+        if 0 in beach_indices:
+            beach_indices.add(len(stations) - 1)  # closed-loop duplicate
+        zones = tuple("calm" if i in beach_indices else "current"
+                      for i in range(len(stations)))
+    else:
+        zones = tuple("calm" if float(s["width_m"]) >= calm_zone_width_m else "current"
+                      for s in stations)
     if any(not isfinite(float(s["width_m"])) or float(s["width_m"]) <= 0 for s in stations):
         raise ValueError("Todas las secciones del DXF deben tener un ancho positivo y finito.")
     positions = _module_positions(stations, active_modules, zones, module_chainages_m)
