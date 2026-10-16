@@ -34,8 +34,13 @@ class RiverflowMapConsistencyTests(unittest.TestCase):
         beach_indices = set(self.beach.beach_indices)
         if 0 in beach_indices:
             beach_indices.add(len(self.model.stations) - 1)
+        calm_core = {i for i in beach_indices
+                     if float(self.model.stations[i]["width_m"]) >= 15}
         self.assertEqual({i for i, zone in enumerate(plan.station_zones)
-                          if zone == "calm"}, beach_indices)
+                          if zone == "calm"}, calm_core)
+        self.assertTrue(any(plan.station_zones[i] == "current" and
+                            float(self.model.stations[i]["width_m"]) < 15
+                            for i in beach_indices))
         self.assertTrue(any(float(station["width_m"]) >= 15 and zone == "current"
                             for station, zone in zip(self.model.stations,
                                                      plan.station_zones)))
