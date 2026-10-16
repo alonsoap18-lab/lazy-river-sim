@@ -86,6 +86,41 @@ def test_relocation_does_not_invent_longitudinal_flow_or_flatten_area_speeds():
     assert moved.velocity_max_m_s > moved.velocity_min_m_s
 
 
+def test_narrow_beach_approach_stays_active_and_last_pump_is_near_widening():
+    stations = geometry()
+    beach = compute_beach_geometry(stations, 1.2, 15.0, first_share=.62,
+                                   flat_ramp_slope=.065)
+    plan = compute_riverflow_plan(stations, depth_m=1.2, target_lap_min=40,
+                                  active_modules=19, beach_geometry=beach,
+                                  calm_zone_width_m=15.0)
+    no_profile = compute_riverflow_plan(stations, depth_m=1.2,
+                                        target_lap_min=40, active_modules=19,
+                                        calm_zone_width_m=15.0)
+
+    def zone_at(result, chainage):
+        i = min(range(len(stations)), key=lambda j:
+                abs(float(stations[j]["chainage_m"]) - chainage))
+        return result.station_zones[i]
+
+    for result in (plan, no_profile):
+        assert zone_at(result, 430) == "current"
+        assert zone_at(result, 497) == "current"
+        assert zone_at(result, 507) == "calm"
+        assert zone_at(result, 150) == "current"  # other wide passage
+    resistance = cumulative_manning_resistance(
+        stations, plan.station_areas_m2, beach.wetted_perimeter_m,
+        plan.station_manning_n)
+    positions, _ = suggest_width_aware_positions(
+        stations, resistance, plan.station_zones, 19,
+        curve_candidates(stations, plan.station_zones, 1.0))
+    calm_start = min(float(stations[i]["chainage_m"])
+                     for i in range(1, len(stations) - 1)
+                     if plan.station_zones[i] == "calm" and
+                     plan.station_zones[i - 1] == "current")
+    assert 5 <= calm_start - positions[-1] <= 15
+    assert zone_at(plan, positions[-1]) == "current"
+
+
 if __name__ == "__main__":
     test_uniform_loop_has_equal_friction_gaps()
     test_dxf_resistance_and_recommendation_are_consistent()

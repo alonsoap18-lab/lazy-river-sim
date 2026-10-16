@@ -185,6 +185,20 @@ def suggest_width_aware_positions(
     if start is not None:
         runs.append((start, length))
 
+    # The main beach is the only intentional slow zone. Keep an active unit
+    # just before its actual widened entrance; the narrower approach remains
+    # circulating even if the lateral beach profile already tapers there.
+    if count >= 4:
+        unique_count = len(stations) - 1
+        entrances = [float(stations[i]["chainage_m"])
+                     for i in range(unique_count)
+                     if zones[i] == "calm" and
+                     zones[(i - 1) % unique_count] == "current"]
+        for entrance in entrances:
+            if len(chosen) >= count:
+                break
+            add_near((entrance - 10.0) % length, "Exterior", max_offset=5.0)
+
     # Cover each bay once before adding a second unit to any bay. The second
     # location is staggered downstream to preserve unique chainages and leave
     # space for a lateral-flow hypothesis on the opposite bank.

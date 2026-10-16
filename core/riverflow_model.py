@@ -186,20 +186,35 @@ def compute_riverflow_plan(
     if not 0 < speed_fraction <= 1 or not 0 < transfer_fraction <= 1:
         raise ValueError("Las fracciones de velocidad y energía útil deben estar entre 0 y 1.")
 
-    # Only the main entry/exit beach is a deliberately calm zone. Other wide
-    # reaches remain part of the circulation route and need through-flow.
-    # Without a beach profile, retain the legacy width-based screening rule.
+    # The lateral beach profile starts in the tapered approach, but its narrow
+    # entrance remains part of the circulating route. The intentionally calm
+    # zone begins only where the *main* bay reaches the editable width limit.
+    # Other wide bays are still passage, with or without a lateral profile.
+    widths = [float(s["width_m"]) for s in stations]
+    if any(not isfinite(width) or width <= 0 for width in widths):
+        raise ValueError("Todas las secciones del DXF deben tener un ancho positivo y finito.")
     if beach_geometry is not None:
         beach_indices = set(beach_geometry.beach_indices)
         if 0 in beach_indices:
             beach_indices.add(len(stations) - 1)  # closed-loop duplicate
-        zones = tuple("calm" if i in beach_indices else "current"
-                      for i in range(len(stations)))
     else:
-        zones = tuple("calm" if float(s["width_m"]) >= calm_zone_width_m else "current"
-                      for s in stations)
-    if any(not isfinite(float(s["width_m"])) or float(s["width_m"]) <= 0 for s in stations):
-        raise ValueError("Todas las secciones del DXF deben tener un ancho positivo y finito.")
+        unique_count = len(stations) - 1
+        widest = max(range(unique_count), key=lambda i: widths[i])
+        beach_indices = set()
+        if widths[widest] >= calm_zone_width_m:
+            beach_indices.add(widest)
+            for direction in (-1, 1):
+                index = widest
+                while len(beach_indices) < unique_count:
+                    candidate = (index + direction) % unique_count
+                    if widths[candidate] < calm_zone_width_m or candidate in beach_indices:
+                        break
+                    beach_indices.add(candidate)
+                    index = candidate
+            if 0 in beach_indices:
+                beach_indices.add(unique_count)
+    zones = tuple("calm" if i in beach_indices and widths[i] >= calm_zone_width_m
+                  else "current" for i in range(len(stations)))
     positions = _module_positions(stations, active_modules, zones, module_chainages_m)
     angles = tuple(float(a) for a in (module_angles_deg if module_angles_deg is not None
                                       else (0.0,) * active_modules))

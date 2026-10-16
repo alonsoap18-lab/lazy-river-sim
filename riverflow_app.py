@@ -477,7 +477,8 @@ def main():
     st.sidebar.subheader("Perfil de la playa principal · anteproyecto")
     use_beach_profile = st.sidebar.checkbox(
         "Aplicar cotas proporcionales al DXF", value=True,
-        help="Solo el ensanchamiento mayor recibe esta rampa. Los demás siguen como bahías calmas profundas.")
+        help="Solo el ensanchamiento principal recibe esta rampa. Su acceso angosto y las "
+             "otras ampliaciones siguen siendo parte del recorrido con corriente.")
     beach_first_share = st.sidebar.slider(
         "Fracción plana de playa (% del ancho extra DXF)", 20, 80, 62, 1,
         help="Equivale proporcionalmente a 16 m planos de un perfil de 26 m; el resto es rampa.")
@@ -991,7 +992,20 @@ def main():
                            if beach_geometry.beach_start_m > beach_geometry.beach_end_m else
                            f"{beach_geometry.beach_start_m:.0f}–"
                            f"{beach_geometry.beach_end_m:.0f} m")
-            st.caption(f"Playa principal: progresivas {beach_range}. "
+            zone_starts = [float(model.stations[i]["chainage_m"])
+                           for i in range(len(model.stations) - 1)
+                           if plan.station_zones[i] == "calm" and
+                           plan.station_zones[i - 1] == "current"]
+            zone_ends = [float(model.stations[i]["chainage_m"])
+                         for i in range(1, len(model.stations) - 1)
+                         if plan.station_zones[i] == "current" and
+                         plan.station_zones[i - 1] == "calm"]
+            calm_range = (f"{zone_starts[0]:.0f}–{model.geometry.channel_length_m:.0f} m "
+                          f"y 0–{zone_ends[0]:.0f} m" if zone_starts and zone_ends else
+                          "sin tramo identificado")
+            st.caption(f"Perfil lateral de playa, incluido su acceso gradual: {beach_range}. "
+                       f"Zona ancha deliberadamente calma: {calm_range}; el tramo angosto "
+                       "anterior conserva la clasificación de circulación. "
                        "El DXF solo tiene los dos contornos de pared: se supone una playa en una margen y "
                        "se reparte el ancho adicional según la proporción elegida. Las otras zonas anchas "
                        "permanecen como zonas de paso con corriente, no como salidas a la arena.")
