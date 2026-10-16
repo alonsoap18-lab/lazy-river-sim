@@ -13,7 +13,7 @@ from core.riverflow_2d import RiverflowField2D, compute_field_2d
 from core.riverflow_model import RiverflowPlan, compute_riverflow_plan
 from core.riverflow_placement import (cumulative_manning_resistance,
                                       curve_candidates,
-                                      suggest_curve_aware_positions)
+                                      suggest_width_aware_positions)
 
 
 @dataclass(frozen=True)
@@ -83,8 +83,9 @@ def evaluate_count_options(
                 provisional.station_manning_n)
             bends = curve_candidates(stations, provisional.station_zones,
                                      scale_m_per_unit)
-            positions, banks = suggest_curve_aware_positions(
-                stations, resistance, provisional.station_zones, count, bends)
+            positions, banks = suggest_width_aware_positions(
+                stations, resistance, provisional.station_zones, count, bends,
+                wide_threshold_m=calm_zone_width_m)
             plan = compute_riverflow_plan(
                 stations, module_chainages_m=positions, module_banks=banks, **inputs)
             field = compute_field_2d(

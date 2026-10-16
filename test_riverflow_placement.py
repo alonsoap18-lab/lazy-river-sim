@@ -5,8 +5,10 @@ from math import isclose
 from core.beach_geometry import compute_beach_geometry
 from core.riverflow_model import compute_riverflow_plan
 from core.riverflow_placement import (cumulative_manning_resistance,
+                                      curve_candidates,
                                       placement_gaps,
-                                      suggest_friction_balanced_positions)
+                                      suggest_friction_balanced_positions,
+                                      suggest_width_aware_positions)
 from test_riverflow_model import geometry
 
 
@@ -40,6 +42,48 @@ def test_dxf_resistance_and_recommendation_are_consistent():
                 zip(stations, plan.station_zones) if zone == "current"}
     assert set(proposal) <= eligible
     assert placement_gaps(stations, cumulative, proposal).max_friction_share > 0
+
+
+def test_width_aware_layout_covers_passing_bays_without_pumps_on_main_beach():
+    stations = geometry()
+    beach = compute_beach_geometry(stations, 1.2)
+    plan = compute_riverflow_plan(stations, depth_m=1.2, target_lap_min=40,
+                                  active_modules=19, floor_manning_n=.013,
+                                  wall_manning_n_current=.025,
+                                  wall_manning_n_calm=.025, beach_geometry=beach)
+    resistance = cumulative_manning_resistance(
+        stations, plan.station_areas_m2, beach.wetted_perimeter_m,
+        plan.station_manning_n)
+    bends = curve_candidates(stations, plan.station_zones, 1.0)
+    positions, banks = suggest_width_aware_positions(
+        stations, resistance, plan.station_zones, 19, bends)
+    assert len(positions) == len(set(positions)) == 19
+    assert tuple(sorted(positions)) == positions
+    for start, end in ((138, 172), (211, 229), (312, 329)):
+        in_bay = [bank for position, bank in zip(positions, banks)
+                  if start <= position < end]
+        assert "Interior" in in_bay and "Exterior" in in_bay
+    for position in positions:
+        index = min(range(len(stations)), key=lambda i:
+                    abs(float(stations[i]["chainage_m"]) - position))
+        assert plan.station_zones[index] == "current"
+    assert placement_gaps(stations, resistance, positions).max_gap_m < 160
+
+
+def test_relocation_does_not_invent_longitudinal_flow_or_flatten_area_speeds():
+    stations = geometry()
+    beach = compute_beach_geometry(stations, 1.2)
+    base = compute_riverflow_plan(stations, depth_m=1.2, target_lap_min=40,
+                                  active_modules=19, beach_geometry=beach)
+    moved = compute_riverflow_plan(
+        stations, depth_m=1.2, target_lap_min=40, active_modules=19,
+        beach_geometry=beach,
+        module_chainages_m=(146, 164, 215, 225, 316, 322, 42, 74, 92, 110,
+                            128, 189, 247, 270, 293, 352, 382, 406, 430))
+    assert isclose(base.equivalent_channel_flow_m3_h,
+                   moved.equivalent_channel_flow_m3_h, rel_tol=1e-12)
+    assert isclose(base.estimated_lap_min, moved.estimated_lap_min, rel_tol=1e-12)
+    assert moved.velocity_max_m_s > moved.velocity_min_m_s
 
 
 if __name__ == "__main__":

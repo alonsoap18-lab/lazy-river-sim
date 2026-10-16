@@ -45,14 +45,17 @@ def test_positions_angles_and_manning_change_linked_outputs():
     rough = compute_riverflow_plan(model.stations, depth_m=1.2,
                                    target_lap_min=40, active_modules=19,
                                    manning_n_current=.03, manning_n_calm=.03)
-    assert beach.placement_effectiveness < base.placement_effectiveness
+    # A pump moved into a wider section has no measured efficiency penalty.
+    # It changes the exploratory lateral field, not the circuit through-flow.
+    assert isclose(beach.placement_effectiveness, base.placement_effectiveness)
     assert angled.placement_effectiveness < base.placement_effectiveness
-    assert base.estimated_lap_min < beach.estimated_lap_min < angled.estimated_lap_min
+    assert isclose(base.estimated_lap_min, beach.estimated_lap_min)
+    assert angled.estimated_lap_min > base.estimated_lap_min
     assert rough.estimated_lap_min > base.estimated_lap_min
     base_field = compute_field_2d(model.stations, base, 1.2, model.geometry.scale_m_per_unit)
     beach_field = compute_field_2d(model.stations, beach, 1.2, model.geometry.scale_m_per_unit)
     rough_field = compute_field_2d(model.stations, rough, 1.2, model.geometry.scale_m_per_unit)
-    assert beach_field.lane_lap_min[1] > base_field.lane_lap_min[1]
+    assert beach_field.lane_lap_min[1] != base_field.lane_lap_min[1]
     assert rough_field.lane_lap_min[1] > base_field.lane_lap_min[1]
     assert not np.allclose(base_field.speed_m_s, beach_field.speed_m_s)
     assert isclose(base.filtration_flow_m3_h, beach.filtration_flow_m3_h)

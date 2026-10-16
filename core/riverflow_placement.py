@@ -126,6 +126,105 @@ def suggest_curve_aware_positions(stations: Sequence[dict], cumulative: Sequence
     return tuple(p for p, _ in ordered), tuple(b for _, b in ordered)
 
 
+def suggest_width_aware_positions(
+    stations: Sequence[dict], cumulative: Sequence[float], zones: Sequence[str],
+    count: int, candidates: Sequence[CurveCandidate], *, wide_threshold_m: float = 15.0,
+) -> tuple[tuple[float, ...], tuple[str, ...]]:
+    """Screen sites across passing bays, bends and uncovered reaches.
+
+    Two staggered sites on opposite banks are considered in each sufficiently
+    long *circulating* widening. They are not opposing jets and do not create
+    extra longitudinal flow. This is geometry-only placement, not CFD or a
+    calibrated prediction of nozzle reach.
+    """
+    if (len(stations) != len(zones) or len(stations) != len(cumulative)
+            or count < 1 or wide_threshold_m <= 0):
+        raise ValueError("Secciones, zonas o cantidad de unidades inválidas.")
+    length = float(stations[-1]["chainage_m"])
+    eligible = [(float(s["chainage_m"]), float(s["width_m"]))
+                for s, zone in zip(stations[:-1], zones[:-1]) if zone == "current"]
+    if length <= 0 or cumulative[-1] <= 0 or len(eligible) < count:
+        raise ValueError("No hay suficientes estaciones de corriente para ubicar unidades.")
+    current_length = sum(float(b["chainage_m"]) - float(a["chainage_m"])
+                         for a, b, zone in zip(stations[:-1], stations[1:], zones[:-1])
+                         if zone == "current")
+    spacing = min(12.0, 0.6 * current_length / count)
+    chosen: list[tuple[float, str]] = []
+
+    def distance(a: float, b: float) -> float:
+        delta = abs(a - b)
+        return min(delta, length - delta)
+
+    def add_near(target: float, bank: str, interval: tuple[float, float] | None = None,
+                 max_offset: float | None = None, paired: bool = False) -> bool:
+        choices = (p for p, _ in eligible if interval is None or
+                   interval[0] <= p < interval[1])
+        for point in sorted(choices, key=lambda p: distance(p, target)):
+            if max_offset is not None and distance(point, target) > max_offset:
+                break
+            if all(distance(point, old) >=
+                   (min(spacing, 0.4 * (interval[1] - interval[0]))
+                    if paired and interval is not None and
+                    interval[0] <= old < interval[1] else spacing)
+                   for old, _ in chosen):
+                chosen.append((point, bank))
+                return True
+        return False
+
+    # Only the mapped main beach is calm. Every other widening is a passage.
+    runs: list[tuple[float, float]] = []
+    start = None
+    for station, zone in zip(stations[:-1], zones[:-1]):
+        point = float(station["chainage_m"])
+        if zone == "current" and float(station["width_m"]) >= wide_threshold_m:
+            if start is None:
+                start = point
+        elif start is not None:
+            runs.append((start, point))
+            start = None
+    if start is not None:
+        runs.append((start, length))
+
+    # Cover each bay once before adding a second unit to any bay. The second
+    # location is staggered downstream to preserve unique chainages and leave
+    # space for a lateral-flow hypothesis on the opposite bank.
+    for second in (False, True):
+        for start, end in sorted(runs, key=lambda run: run[1] - run[0], reverse=True):
+            if len(chosen) >= count:
+                break
+            target = start + (0.78 if second else 0.22) * (end - start)
+            add_near(target, "Exterior" if second else "Interior", (start, end),
+                     paired=second)
+
+    for curve in sorted(candidates, key=lambda c: abs(c.turn_deg), reverse=True):
+        if len(chosen) >= count:
+            break
+        if any(distance(point, curve.candidate_m) < spacing for point, _ in chosen):
+            continue
+        add_near(curve.candidate_m, curve.preferred_bank, max_offset=6.0)
+
+    # Fill uncovered lengths. A moderate width preference prevents the old
+    # Manning-only ranking from crowding narrow reaches; it is a site priority,
+    # not an invented hydraulic gain or velocity formula.
+    widths = sorted(width for _, width in eligible)
+    reference_width = widths[len(widths) // 2]
+    while len(chosen) < count:
+        options = [(min(distance(p, old) for old, _ in chosen) if chosen else length / 2,
+                    p, width) for p, width in eligible
+                   if all(distance(p, old) >= spacing for old, _ in chosen)]
+        if not options:
+            raise ValueError("No caben más unidades sin repetir posiciones elegibles.")
+        _, point, _ = max(options, key=lambda item:
+                          (item[0] * min(1.6, (item[2] / reference_width) ** 0.35),
+                           item[0], item[1]))
+        nearby = min(candidates, key=lambda c: distance(c.candidate_m, point)) if candidates else None
+        bank = (nearby.preferred_bank if nearby is not None and
+                distance(nearby.candidate_m, point) <= spacing else "Exterior")
+        chosen.append((point, bank))
+    ordered = sorted(chosen)
+    return tuple(p for p, _ in ordered), tuple(b for _, b in ordered)
+
+
 def cumulative_manning_resistance(stations: Sequence[dict], areas_m2: Sequence[float],
                                   perimeters_m: Sequence[float],
                                   manning_n: Sequence[float]) -> tuple[float, ...]:

@@ -10,7 +10,6 @@ intersection, electrical demand, and CFD result remain unverified.
 
 from dataclasses import dataclass
 from math import ceil, cos, inf, isfinite, radians, sqrt
-from statistics import median
 from typing import Optional, Sequence
 
 from core.beach_geometry import BeachGeometry
@@ -209,17 +208,12 @@ def compute_riverflow_plan(
     banks = tuple(module_banks if module_banks is not None else ("Exterior",) * active_modules)
     if len(banks) != active_modules or any(b not in ("Exterior", "Interior") for b in banks):
         raise ValueError("Indique margen Interior o Exterior por cada unidad activa.")
-    current_widths = [float(s["width_m"]) for s, z in zip(stations, zones) if z == "current"]
-    reference_width = median(current_widths or [float(s["width_m"]) for s in stations])
-    # Explicit, uncalibrated coupling sensitivity. A jet angled away from the
-    # travel direction or placed in a wide beach contributes less longitudinal
-    # momentum. This is not a manufacturer efficiency or a safety prediction.
-    scores = []
-    for position, angle in zip(positions, angles):
-        nearest = min(stations, key=lambda s: abs(float(s["chainage_m"]) - position))
-        local_width = float(nearest["width_m"])
-        width_score = min(1.0, sqrt(reference_width / local_width))
-        scores.append(width_score * cos(radians(angle)) ** 2)
+    # Only the outlet's longitudinal direction changes this uncalibrated
+    # energy scenario. A width penalty for a pump sited in a passage bay had
+    # no measured basis and incorrectly discouraged coverage of those bays.
+    # Relocating a pump cannot change the single through-flow of a closed,
+    # unbranched channel; local lateral effects remain exploratory only.
+    scores = [cos(radians(angle)) ** 2 for angle in angles]
     placement_effectiveness = (sum(q * score for q, score in zip(per_module_flows, scores)) /
                                sum(per_module_flows))
     if beach_geometry is not None and len(beach_geometry.area_m2) != len(stations):

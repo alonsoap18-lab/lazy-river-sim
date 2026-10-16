@@ -48,7 +48,7 @@ from core.riverflow_placement import (cumulative_manning_resistance,
                                       curve_candidates,
                                       placement_gaps,
                                       suggest_friction_balanced_positions,
-                                      suggest_curve_aware_positions)
+                                      suggest_width_aware_positions)
 from core.sph_public_sheet import render_sph_sheet
 
 
@@ -752,8 +752,8 @@ def main():
         perimeters = (beach_geometry.wetted_perimeter_m if beach_geometry is not None else
                       tuple(float(s["width_m"]) + 2 * depth_m for s in model.stations))
         if placement_mode == "Automática":
-            # Apply the same auditable bend/friction proposal that was formerly
-            # available only through a manual button. No bank choice is treated
+            # Give circulating passage bays and bends explicit coverage rather
+            # than concentrating units where Manning friction is highest. No bank choice is treated
             # as a measured jet-reach or construction recommendation.
             automatic_resistance = cumulative_manning_resistance(
                 model.stations, plan.station_areas_m2, perimeters,
@@ -761,9 +761,9 @@ def main():
             automatic_bends = curve_candidates(
                 model.stations, plan.station_zones,
                 model.geometry.scale_m_per_unit)
-            automatic_positions, automatic_banks = suggest_curve_aware_positions(
+            automatic_positions, automatic_banks = suggest_width_aware_positions(
                 model.stations, automatic_resistance, plan.station_zones,
-                active_modules, automatic_bends)
+                active_modules, automatic_bends, wide_threshold_m=calm_width_m)
             plan = compute_riverflow_plan(
                 model.stations, module_chainages_m=automatic_positions,
                 module_banks=automatic_banks, **plan_inputs)
@@ -789,8 +789,8 @@ def main():
         exterior_count = plan.module_banks.count("Exterior")
         st.caption(f"Ubicación automática activa: {exterior_count} unidades en la margen "
                    f"exterior del circuito y {plan.active_modules - exterior_count} "
-                   "en la interior. El criterio combina resistencia de Manning entre "
-                   "descargas y aproximación a curvas del DXF; es una propuesta "
+                   "en la interior. El criterio cubre primero las ampliaciones de paso, "
+                   "después las curvas y por último los tramos sin bombas; es una propuesta "
                    "geométrica, no una ubicación validada de tomas/boquillas.")
 
     st.info("Los extremos rotulados de la curva H–Q Riverflow son datos del fabricante; "
@@ -904,8 +904,9 @@ def main():
               help=f"{hydraulic_source if use_local_circuit else 'TDH manual'}: "
                    f"{local_head_ft:.1f} ft ({local_head_ft * 0.3048:.2f} m) "
                    "de TDH local equivalente a plena velocidad.")
-    st.caption(f"Acoplamiento por ancho y orientación propuestos: {plan.placement_effectiveness:.0%} "
-               "del escenario de referencia. Es una hipótesis, no una eficiencia certificada.")
+    st.caption(f"Factor de orientación longitudinal propuesto: {plan.placement_effectiveness:.0%} "
+               "del escenario de referencia. Ya no se penaliza una bomba solo por estar en un "
+               "ensanchamiento: esa penalización carecía de calibración. No es eficiencia certificada.")
 
     if "filtration_active_pumps" not in st.session_state:
         st.session_state["filtration_active_pumps"] = 6
@@ -993,7 +994,7 @@ def main():
             st.caption(f"Playa principal: progresivas {beach_range}. "
                        "El DXF solo tiene los dos contornos de pared: se supone una playa en una margen y "
                        "se reparte el ancho adicional según la proporción elegida. Las otras zonas anchas "
-                       "permanecen como bahías calmas, no como salidas a la arena.")
+                       "permanecen como zonas de paso con corriente, no como salidas a la arena.")
             if not beach_geometry.profile_fits_slope_limit:
                 st.warning("Este perfil NO alcanza arena seca dentro del contorno DXF. "
                            f"Quedan {beach_geometry.beach_end_depth_at_widest_m:.2f} m de agua "
@@ -1028,6 +1029,64 @@ def main():
                    "es zona calma; los demás ensanchamientos del DXF siguen siendo tramos "
                    "de circulación. La orilla propuesta y la orientación son hipótesis "
                    "geométricas, no una optimización CFD ni una garantía de seguridad.")
+        with st.expander("Velocidad por zonas · continuidad Q/A", expanded=True):
+            zone_sections = {"Canal de paso angosto": [],
+                             "Ampliaciones de paso": [],
+                             "Playa de entrada/salida": []}
+            segment_zones = []
+            for i in range(len(model.stations) - 1):
+                segment_m = (float(model.stations[i + 1]["chainage_m"]) -
+                             float(model.stations[i]["chainage_m"]))
+                if segment_m <= 0:
+                    continue
+                width_m = (float(model.stations[i]["width_m"]) +
+                           float(model.stations[i + 1]["width_m"])) / 2
+                area_m2 = (plan.station_areas_m2[i] + plan.station_areas_m2[i + 1]) / 2
+                speed_m_s = plan.equivalent_channel_flow_m3_h / 3600 / area_m2
+                zone = ("Playa de entrada/salida" if plan.station_zones[i] == "calm" else
+                        "Ampliaciones de paso" if width_m >= calm_width_m else
+                        "Canal de paso angosto")
+                zone_sections[zone].append((segment_m, speed_m_s))
+                segment_zones.append(zone)
+            chainages = np.array([float(s["chainage_m"]) for s in model.stations])
+            pump_zone_counts = {name: 0 for name in zone_sections}
+            for position in plan.module_chainages_m:
+                segment = int(np.clip(np.searchsorted(chainages, position, side="right") - 1,
+                                      0, len(segment_zones) - 1))
+                pump_zone_counts[segment_zones[segment]] += 1
+            speed_rows = []
+            for name, sections in zone_sections.items():
+                if not sections:
+                    continue
+                covered_m = sum(ds for ds, _ in sections)
+                speed_rows.append({
+                    "Zona": name,
+                    "Longitud (m)": round(covered_m, 1),
+                    "Velocidad media ponderada (m/s)": round(
+                        sum(ds * velocity for ds, velocity in sections) / covered_m, 3),
+                    "Mín–máx Q/A (m/s)": (f"{min(v for _, v in sections):.3f}–"
+                                         f"{max(v for _, v in sections):.3f}"),
+                    "Bombas en zona": pump_zone_counts[name],
+                })
+            st.dataframe(speed_rows, width="stretch", hide_index=True)
+            means = {row["Zona"]: row["Velocidad media ponderada (m/s)"]
+                     for row in speed_rows}
+            if ("Ampliaciones de paso" in means and
+                    "Playa de entrada/salida" in means and
+                    means["Ampliaciones de paso"] < means["Playa de entrada/salida"]):
+                st.warning("Con el mismo Q en todo el circuito, las ampliaciones de paso "
+                           "resultan más lentas en promedio que la playa principal. "
+                           "La nueva ubicación de bombas no corrige esa diferencia de áreas; "
+                           "no debe interpretarse el color ni la cantidad de bombas como "
+                           "velocidad continua demostrada. Revise secciones/carriles de paso "
+                           "o modele derivaciones antes de dimensionar equipos por esta meta.")
+            st.caption("La velocidad media de cada sección es el mismo Q longitudinal dividido "
+                       "por su área mojada (Q/A); las bombas de la columna son ubicaciones, "
+                       "no caudales que se suman al cruzar cada estación. Dos bombas en una "
+                       "ampliación son una hipótesis para repartir el empuje entre orillas, "
+                       "no prueba de velocidad uniforme ni ausencia de remolinos. Para elevar "
+                       "Q/A en toda una ampliación sin acelerar los estrechamientos habría "
+                       "que revisar la geometría, derivaciones o la meta de velocidad por zona.")
         with st.expander("Revisar posición y orilla de cada bomba", expanded=False):
             review_bends = curve_candidates(model.stations, plan.station_zones,
                                             model.geometry.scale_m_per_unit)
@@ -1045,9 +1104,12 @@ def main():
                 bend_distance = (min(abs(nearest_bend.candidate_m - position),
                                      length - abs(nearest_bend.candidate_m - position))
                                  if nearest_bend else None)
-                criterion = ("Curva cercana · criterio geométrico" if bend_distance is not None
+                criterion = ("Ampliación de paso · cobertura de ambas orillas"
+                             if plan.station_zones[station_index] == "current" and
+                             float(station["width_m"]) >= calm_width_m else
+                             "Curva cercana · criterio geométrico" if bend_distance is not None
                              and bend_distance <= max(12.0, .55 * length / plan.active_modules)
-                             else "Equilibrio de separación/resistencia")
+                             else "Cobertura de tramo · criterio geométrico")
                 if placement_mode != "Automática":
                     criterion = "Posición y margen editados"
                 review_rows.append({
@@ -1065,7 +1127,7 @@ def main():
                        "Estar cerca de una curva no demuestra que el chorro la atraviese; "
                        "la playa y las tomas requieren revisión de seguridad independiente.")
         if placement_mode != "Automática":
-            st.button("Activar propuesta automática de curvas y márgenes",
+            st.button("Activar propuesta automática de pasos anchos y curvas",
                       on_click=lambda: st.session_state.update(
                           riverflow_placement_mode="Automática"),
                       help="Conserva tus valores manuales para volver a ellos después.")
@@ -1115,9 +1177,9 @@ def main():
         st.metric("Mayor distancia de canal a una unidad", f"{plan.max_current_distance_to_module_m:.0f} m",
                   help="Distancia más larga, medida sobre el recorrido cerrado, desde una sección de corriente hasta la unidad activa más cercana. Cambia al mover unidades; no equivale a alcance hidráulico de la descarga.")
         with st.expander("Comparar ubicación de bombas · fricción y continuidad", expanded=False):
-            st.caption("Se compara la disposición activa con una propuesta que reparte la "
-                       "resistencia Manning y limita tramos largos sin impulsión. "
-                       "Las estaciones propuestas permanecen fuera de las zonas anchas de playa. "
+            st.caption("Se compara la disposición activa con propuestas geométricas de "
+                       "reparto por fricción y de cobertura de ampliaciones de paso/curvas. "
+                       "Solo la playa principal queda intencionalmente sin impulsión. "
                        "Esto es un indicador geométrico, NO un alcance certificado del chorro.")
             evaluation_width = st.number_input(
                 "Ancho máximo para evaluar 0,25–0,30 m/s (m)", 4.0,
@@ -1157,9 +1219,9 @@ def main():
                     plan.active_modules)
                 bends = curve_candidates(model.stations, plan.station_zones,
                                          model.geometry.scale_m_per_unit)
-                curve_positions, curve_banks = suggest_curve_aware_positions(
+                curve_positions, curve_banks = suggest_width_aware_positions(
                     model.stations, cumulative_resistance, plan.station_zones,
-                    plan.active_modules, bends)
+                    plan.active_modules, bends, wide_threshold_m=calm_width_m)
                 active_gaps = placement_gaps(
                     model.stations, cumulative_resistance,
                     tuple(position % plan.length_m for position in plan.module_chainages_m))
@@ -1178,7 +1240,7 @@ def main():
                      "Mayor separación (m)": round(suggested_gaps.max_gap_m, 1),
                      "Mayor carga entre unidades (%)": round(suggested_gaps.max_friction_share * 100, 1),
                      "Desequilibrio de carga (× ideal)": round(suggested_gaps.friction_imbalance, 2)},
-                    {"Distribución": "Propuesta · fricción + curvas",
+                    {"Distribución": "Propuesta · pasos anchos + curvas",
                      "Mayor separación (m)": round(curve_gaps.max_gap_m, 1),
                      "Mayor carga entre unidades (%)": round(curve_gaps.max_friction_share * 100, 1),
                      "Desequilibrio de carga (× ideal)": round(curve_gaps.friction_imbalance, 2)},
@@ -1222,7 +1284,7 @@ def main():
                     st.session_state[f"riverflow_banks_{active_modules}"] = ", ".join(
                         "E" if b == "Exterior" else "I" for b in curve_banks)
 
-                st.button("Probar posiciones y márgenes de curvas en escenario local",
+                st.button("Probar pasos anchos y curvas en escenario local",
                           on_click=apply_curve_proposal,
                           help="Propuesta geométrica editable; no es plano de instalación.")
                 if st.checkbox("Comparar mapas de velocidad lateral · exploratorio",
@@ -1245,7 +1307,7 @@ def main():
                                               np.max(suggested_field.speed_m_s),
                                               np.max(curve_field.speed_m_s))))
                     current_map, proposed_map, bend_map = st.tabs(
-                        ["Activa", "Fricción + distancia", "Fricción + curvas"])
+                        ["Activa", "Fricción + distancia", "Pasos anchos + curvas"])
                     with current_map:
                         st.plotly_chart(make_map(model, plan, True, True, field,
                                                  color_range=common_range), width="stretch",
@@ -1344,7 +1406,7 @@ def main():
             f"3. **Movimiento del río:** {active_modules} unidades dan "
             f"{plan.installed_operating_flow_m3_h:,.0f} m³/h de descarga local estimada; "
             f"con {transfer_pct:.1f}% de energía hidráulica útil supuesta, un factor de "
-            f"ubicación/orientación de {plan.placement_effectiveness:.0%} y la resistencia "
+            f"orientación de {plan.placement_effectiveness:.0%} y la resistencia "
             f"Manning del DXF, la corriente longitudinal del escenario es "
             f"{plan.equivalent_channel_flow_m3_h:,.0f} m³/h.\n"
             f"4. **Tiempo de vuelta:** volumen ÷ circulación equivalente = "
@@ -2221,9 +2283,9 @@ def main():
             alt_bends = curve_candidates(model.stations,
                                          provisional_alternative.station_zones,
                                          model.geometry.scale_m_per_unit)
-            alternative_positions, alternative_banks = suggest_curve_aware_positions(
+            alternative_positions, alternative_banks = suggest_width_aware_positions(
                 model.stations, alt_resistance, provisional_alternative.station_zones,
-                alternative_modules, alt_bends)
+                alternative_modules, alt_bends, wide_threshold_m=calm_width_m)
         alternate_plan = compute_riverflow_plan(
             model.stations, module_chainages_m=alternative_positions,
             module_banks=alternative_banks, **alternate_inputs)
