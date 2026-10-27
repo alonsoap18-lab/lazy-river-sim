@@ -22,6 +22,7 @@ from core.geometry_audit import audit_geometry
 from core.riverflow_2d import compute_field_2d
 from core.riverflow_3d_pilot import assess_speed_band
 from core.riverflow_cfd_preview import compute_cfd_preview
+from core.riverflow_cfd_saved import render_saved_cfd
 from core.riverflow_decision import (consistency_checks, evaluate_count_options,
                                      evaluate_decision_cases)
 from core.riverflow_momentum_pilot import compute_momentum_pilot
@@ -648,8 +649,10 @@ def main():
     with st.sidebar.expander("Ensayo heredado · energía útil NO calibrada", expanded=False):
         transfer_pct = st.slider(
             "Energía útil para mover el río (%) · solo exploración", 0.5, 20.0, 2.0, 0.5,
-            help="No interviene en la banda física de 30–40 min. Afecta únicamente "
-                 "las vistas heredadas de escenario; 2 % no es un dato de Riverflow.")
+            help="No interviene en la exigencia de impulso para 30–40 min, el caudal "
+                 "local de las bombas ni la filtración. Sí cambia la vuelta y las "
+                 "velocidades de los ensayos 2D/3D y sus comparativas. El 2 % no "
+                 "es un dato de Riverflow ni una medición de NYA.")
     placement_mode = st.sidebar.radio("Ubicación de unidades", ["Automática", "Editar por recorrido (m)"],
                                       help="La ubicación automática evita las entradas a playa.",
                                       key="riverflow_placement_mode")
@@ -794,109 +797,12 @@ def main():
                    "después las curvas y por último los tramos sin bombas; es una propuesta "
                    "geométrica, no una ubicación validada de tomas/boquillas.")
 
-    st.info("Los extremos rotulados de la curva H–Q Riverflow son datos del fabricante; "
-            "los puntos intermedios, la red local NYA y su TDH son aproximaciones. "
-            "La banda de decisión siguiente NO utiliza el 2 % del ensayo heredado. "
-            "Ni el ensayo ni el límite de impulso son desempeño garantizado.")
-    if custom_circuits:
-        st.warning("Los resultados del escenario ACTIVO y el listado de equipos usan el circuito "
-                   "editado de cada RF. Las matrices y alternativas que cambian la cantidad de "
-                   "unidades siguen suponiendo un circuito común: no use esas filas para "
-                   "comparar el trazado individual de tuberías.")
-
-    st.subheader("Banda de vuelta 30–40 min · sin el 2 % supuesto")
-    st.caption("Cálculo inverso: con el volumen y el Manning actuales, muestra la corriente "
-               "necesaria y qué parte del impulso bruto ideal de las boquillas de 7 puertos "
-               "tendría que llegar al río. No presupone que esa transferencia ocurra.")
-    if nozzle_type == "7 puertos":
-        st.dataframe([{
-            "Vuelta objetivo": f"{row.lap_min:.0f} min",
-            "Velocidad efectiva": f"{row.effective_speed_m_s:.3f} m/s",
-            "Q longitudinal requerido": f"{row.required_channel_flow_m3_h:,.0f} m³/h",
-            "Impulso bruto necesario · Manning actual":
-                f"{row.fraction_of_gross_nozzle_momentum:.1%}",
-            "Con n +20 % · sensibilidad":
-                f"{higher.fraction_of_gross_nozzle_momentum:.1%}",
-        } for row, higher in zip(nozzle_screen.requirements,
-                                 rough_screen.requirements)],
-                     width="stretch", hide_index=True)
-        st.caption(f"CF104 activas: {plan.active_modules}; descarga local conjunta: "
-                   f"{plan.installed_operating_flow_m3_h:,.0f} m³/h (NO es Q longitudinal). "
-                   f"Velocidad teórica de salida: "
-                   f"{min(nozzle_screen.nozzle_exit_speeds_m_s):.2f}–"
-                   f"{max(nozzle_screen.nozzle_exit_speeds_m_s):.2f} m/s. "
-                   "La columna n +20 % es una prueba de sensibilidad, no otro acabado confirmado.")
-        with st.expander("Comparar cantidades · límite ideal, sin distancia ni ubicación", expanded=False):
-            candidate_counts = sorted({max(1, min(60, plan.active_modules + offset))
-                                       for offset in (-8, -4, 0, 4, 8)})
-            st.dataframe([{
-                "CF104 activas": count,
-                "Impulso bruto exigido · 35 min": f"{fractions[1]:.1%}",
-                "Impulso bruto exigido · 40 min": f"{fractions[2]:.1%}",
-            } for count, fractions in count_sensitivity(
-                nozzle_screen, plan.active_modules, candidate_counts)],
-                width="stretch", hide_index=True)
-            st.caption("Solo escala el mismo caudal y orientación medios por unidad del "
-                       "escenario activo. No verifica separación, margen interior/exterior, "
-                       "alcance de chorros ni que se conserve la TDH al instalar más equipos. "
-                       "Mover una bomba NO cambia este balance global; su efecto local debe "
-                       "contrastarse en la simulación y no se atribuye un beneficio inventado.")
-        if any(row.fraction_of_gross_nozzle_momentum > 1
-               for row in nozzle_screen.requirements):
-            st.error("Al menos una meta exigiría más del 100 % del impulso bruto ideal: "
-                     "no es viable bajo esos supuestos de geometría, bomba y rugosidad.")
-        else:
-            st.warning("Que la exigencia sea menor de 100 % solo supera un límite ideal. "
-                       "No predice la fracción real transferida ni autoriza elegir "
-                       "cantidad o ubicación definitiva de bombas.")
-        if (max(nozzle_screen.nozzle_velocity_heads_ft) >
-                plan.module_head_full_speed_ft * plan.speed_fraction ** 2):
-            st.warning("Q/área de boquillas implica una carga cinética superior a la "
-                       "TDH local seleccionada. Revise el punto bomba–circuito: esos "
-                       "dos datos no deben usarse simultáneamente como punto físico confirmado.")
-        with st.expander("De dónde salen estos datos y qué falta para una vuelta prevista"):
-            st.markdown(
-                "- **Velocidad requerida:** 536 m ÷ segundos de la vuelta objetivo; "
-                "es una velocidad efectiva, no una velocidad uniforme en todas las orillas.\n"
-                "- **Q longitudinal requerido:** volumen DXF + perfil ÷ tiempo objetivo. "
-                "No es la suma de las descargas locales de las bombas.\n"
-                "- **Salida de boquilla:** caudal operativo de cada CF104 ÷ área abierta "
-                "documentada de los siete puertos; no equivale a velocidad del canal.\n"
-                "- **Exigencia de impulso:** arrastre longitudinal Manning integrado "
-                "en las secciones ÷ impulso bruto ideal de las descargas orientadas. "
-                "No se introduce el 2 % ni otro porcentaje fijo.\n"
-                "- **Aún no resuelto:** qué parte del impulso llega efectivamente a "
-                "cada carril tras tomas, mezcla y curvas; comportamiento de personas "
-                "con chaleco o foam, y estabilización/convergencia del ensayo SPH. "
-                "Por ello la tabla es una prueba de exigencia, no un tiempo previsto."
-            )
-    else:
-        st.warning("No hay área abierta documentada para el manifold de tres puertos; "
-                   "la comparación de impulso de boquilla requiere la salida de 7 puertos.")
-    with st.expander("Ensayo heredado · energía útil hipotética, NO usar como pronóstico",
-                     expanded=False):
-        c1, c2, c3, c4, c5 = st.columns(5)
-        c1.metric("Meta de vuelta", f"{plan.target_lap_min:.1f} min")
-        c2.metric("Vuelta media V/Q", f"{plan.estimated_lap_min:.1f} min",
-                  help="Solo ensayo heredado con energía útil hipotética; no es un tiempo previsto.")
-        c3.metric("Caudal de unidades", f"{plan.installed_operating_flow_m3_h:,.0f} m³/h")
-        c4.metric("Corriente longitudinal · escenario", f"{plan.equivalent_channel_flow_m3_h:,.0f} m³/h")
-        c5.metric("Vuelta central 2D", f"{field.lane_lap_min[1]:.1f} min")
-        slow_lane = max(field.lane_lap_min)
-        if slow_lane <= plan.target_lap_min:
-            st.info(f"El escenario conceptual queda bajo la meta en las tres trayectorias 2D "
-                    f"({min(field.lane_lap_min):.1f}–{slow_lane:.1f} min). "
-                    "No es una garantía de recorrido real ni una cantidad de compra.")
-        else:
-            st.warning(f"La trayectoria más lenta del escenario 2D tarda {slow_lane:.1f} min, "
-                       f"por encima de la meta de {target_lap_min:.1f} min. "
-                       f"La aritmética V/Q indica {plan.required_active_modules} unidades para la meta, "
-                       "pero no dimensiona las trayectorias ni constituye una selección de compra.")
-
     g1, g2, g3, g4, g5 = st.columns(5)
     g1.metric("Volumen DXF + perfil" if beach_geometry else "Volumen DXF uniforme",
               f"{plan.volume_m3:,.0f} m³")
-    g2.metric("Q requerido para meta", f"{plan.target_equivalent_flow_m3_h:,.0f} m³/h")
+    g2.metric("Q requerido para meta", f"{plan.target_equivalent_flow_m3_h:,.0f} m³/h",
+              help="Volumen dividido entre tiempo objetivo: exigencia del canal, "
+                   "no caudal demostrado de circulación longitudinal.")
     g3.metric("Motores activos · placa", f"{plan.active_motor_nameplate_hp:.0f} HP")
     g4.metric("Filtración separada", f"{plan.filtration_flow_m3_h:,.0f} m³/h")
     g5.metric("Q medio por unidad · fuente elegida" if custom_circuits else
@@ -918,8 +824,8 @@ def main():
     # than solving a second hydraulic scenario.
     (tab_decision, tab_map, tab_hydraulic, tab_filtration, tab_scenarios,
      tab_equipment, tab_flow, tab_references) = st.tabs(
-        ["Decisión · escenario hipotético", "Plano y recorrido 2D/3D", "Hidráulica Riverflow",
-         "Filtración", "Comparar escenarios", "Equipos e instalación",
+        ["Decisión · curva e impulso", "Plano y recorrido 2D/3D", "Hidráulica Riverflow",
+         "Filtración", "Escenarios hipotéticos", "Equipos e instalación",
          "Estudio de flujo · mover bombas", "Fuentes y límites"])
     with tab_decision:
         decision_content = st.container()
@@ -1022,7 +928,12 @@ def main():
                        f"con perfil de playa: {plan.volume_m3:,.0f} m³. Esta diferencia se transmite "
                        "a la velocidad media, vuelta y filtración; no sustituye cotas topográficas.")
         show_installation = st.checkbox("Mostrar montaje conceptual: bomba, tomas y descarga", value=True)
-        show_heatmap = st.checkbox("Colorear campo 2D preliminar de velocidad", value=True)
+        st.info("El plano muestra por defecto la geometría DXF y las posiciones propuestas. "
+                "El campo de velocidades y su vuelta dependen de una transferencia de energía "
+                "no medida: actívelos solo para explorar hipótesis, no para decidir compras.")
+        show_heatmap = st.checkbox(
+            "Mostrar velocidades 2D hipotéticas · energía útil no calibrada",
+            value=False, key="rf_show_uncalibrated_heatmap")
         show_section_audit = st.checkbox("Auditar secciones perpendiculares del DXF", value=True)
         section_checks = None
         if show_section_audit:
@@ -1043,7 +954,10 @@ def main():
                    "es zona calma; los demás ensanchamientos del DXF siguen siendo tramos "
                    "de circulación. La orilla propuesta y la orientación son hipótesis "
                    "geométricas, no una optimización CFD ni una garantía de seguridad.")
-        with st.expander("Velocidad por zonas · continuidad Q/A", expanded=True):
+        with st.expander("Archivo · velocidad por zonas con energía útil supuesta", expanded=False):
+            st.warning(f"Q/A aquí usa el caudal longitudinal hipotético derivado de "
+                       f"{transfer_pct:.1f}% de energía útil. Sirve para examinar "
+                       "diferencias de área, no para afirmar velocidades reales.")
             zone_sections = {"Canal de paso angosto": [],
                              "Ampliaciones de paso": [],
                              "Playa de entrada/salida": []}
@@ -1094,7 +1008,7 @@ def main():
                            "no debe interpretarse el color ni la cantidad de bombas como "
                            "velocidad continua demostrada. Revise secciones/carriles de paso "
                            "o modele derivaciones antes de dimensionar equipos por esta meta.")
-            st.caption("La velocidad media de cada sección es el mismo Q longitudinal dividido "
+            st.caption("La velocidad hipotética de cada sección es el mismo Q longitudinal supuesto dividido "
                        "por su área mojada (Q/A); las bombas de la columna son ubicaciones, "
                        "no caudales que se suman al cruzar cada estación. Dos bombas en una "
                        "ampliación son una hipótesis para repartir el empuje entre orillas, "
@@ -1147,6 +1061,8 @@ def main():
                       help="Conserva tus valores manuales para volver a ellos después.")
         st.plotly_chart(make_map(model, plan, show_installation, show_heatmap, field,
                                  section_checks), width="stretch", key="rf_main_2d_map")
+        st.divider()
+        render_saved_cfd(plan, speed_pct, uploaded is not None)
         if section_checks is not None:
             flagged_checks = [check for check in section_checks if check.status != "Consistente"]
             c_a, c_b, c_c = st.columns(3)
@@ -1166,24 +1082,29 @@ def main():
                                                         if check.normal_width_m is not None else None),
                            "Estado": check.status}
                           for check in section_checks], width="stretch", hide_index=True)
-        st.caption("Mapa 2D conceptual: azul = menor, rojo = mayor. Conserva el caudal equivalente "
-                   "en cada sección y muestra gradientes laterales hipotéticos por márgenes y descargas. "
-                   "Usa profundidad media por sección: no muestra la pendiente lateral real de playa. "
-                   "No resuelve turbulencia, remolinos reales ni velocidades de seguridad; NO es CFD validado.")
+        if show_heatmap:
+            st.warning(f"Colores de ensayo, NO velocidades previstas: usan {transfer_pct:.1f}% "
+                       "de energía útil no medida para calcular el caudal longitudinal. "
+                       "El reparto lateral también es hipotético; no representa CFD ni "
+                       "velocidades seguras junto a tomas, boquillas o playa.")
+        else:
+            st.caption("Plano de geometría y ubicación: sin mapa de velocidad. El color de "
+                       "cada zona identifica circulación o playa, no la rapidez del agua.")
         st.caption("Rombo naranja: RF en margen exterior; cuadrado morado: RF en margen interior. "
                    "Azul: dos tomas de succión. Verde: "
                    "descarga y dirección tentativa. Las conexiones son símbolos esquemáticos; "
                    "no representan cotas, diámetros, orientación definitiva ni alcance hidráulico. "
                    "La orientación y la eficacia local siguen siendo supuestos para comparar escenarios.")
-        fm1, fm2, fm3 = st.columns(3)
-        fm1.metric("Campo 2D · mín–máx", f"{np.min(field.speed_m_s):.3f}–{np.max(field.speed_m_s):.3f} m/s")
-        fm2.metric("Vuelta carril central 2D", f"{field.lane_lap_min[1]:.1f} min")
-        fm3.metric("Residuo numérico de caudal", f"{field.volume_residual_fraction:.2%}")
-        if abs(field.lane_lap_min[1] / plan.estimated_lap_min - 1) > .10:
-            st.warning(f"Dos hipótesis de tiempo distintas: V/Q uniforme = "
-                       f"{plan.estimated_lap_min:.1f} min; carril central 2D = "
-                       f"{field.lane_lap_min[1]:.1f} min. El campo lateral no está calibrado "
-                       "y no confirma la duración real de una vuelta.")
+        if show_heatmap:
+            fm1, fm2, fm3 = st.columns(3)
+            fm1.metric("Ensayo 2D · mín–máx", f"{np.min(field.speed_m_s):.3f}–{np.max(field.speed_m_s):.3f} m/s")
+            fm2.metric("Vuelta hipotética · carril central", f"{field.lane_lap_min[1]:.1f} min")
+            fm3.metric("Residuo numérico de caudal", f"{field.volume_residual_fraction:.2%}")
+            if abs(field.lane_lap_min[1] / plan.estimated_lap_min - 1) > .10:
+                st.warning(f"Dos hipótesis de tiempo distintas: V/Q uniforme = "
+                           f"{plan.estimated_lap_min:.1f} min; carril central 2D = "
+                           f"{field.lane_lap_min[1]:.1f} min. El campo lateral no está "
+                           "calibrado y no confirma la duración real de una vuelta.")
         st.metric("Longitud del circuito", f"{plan.length_m:.0f} m")
         z1, z2 = st.columns(2)
         z1.metric("Canal de corriente", f"{plan.current_zone_length_m:.0f} m")
@@ -1368,12 +1289,11 @@ def main():
                     st.warning("El mapa 2D conserva el mismo Q y usa un reparto lateral "
                                "hipotético cerca de cada descarga; estas métricas no validan "
                                "velocidad real, alcance de chorros ni seguridad en playa/curvas.")
-        with st.expander("Vista 3D · mismo escenario Riverflow", expanded=False):
-            st.caption("Usa el DXF, profundidad, playa, unidades, posiciones, ángulos y "
-                       "velocidad seccional Q/A de este escenario. El tiempo del marcador "
-                       "coincide con la vuelta volumétrica indicada arriba; la vuelta de "
-                       "los carriles 2D puede ser distinta. La superficie y los trazos "
-                       "animados son una representación conceptual, no CFD.")
+        with st.expander("Vista 3D · ensayo hipotético, no pronóstico", expanded=False):
+            st.warning(f"La velocidad, los colores y el tiempo del marcador dependen de "
+                       f"{transfer_pct:.1f}% de energía útil no medida. Usa geometría y "
+                       "posiciones editables, pero no comprueba el alcance de cada chorro, "
+                       "remolinos ni el tiempo real de personas flotando.")
             visual_mode = st.radio(
                 "Capa de velocidad 3D",
                 ["Campo 2D lateral · prueba", "Q/A uniforme por sección"],
@@ -1398,10 +1318,10 @@ def main():
                                      else None)))
                 st.iframe(render_animation(scene_figure, rider_index, rider_track,
                                            streak_index, streak_frames), height=790)
-                st.caption(f"Escenario activo: {plan.active_modules} unidades Riverflow a "
-                           f"{speed_pct}% del variador; Q longitudinal equivalente "
+                st.caption(f"Ensayo no calibrado: {plan.active_modules} unidades Riverflow a "
+                           f"{speed_pct}% del variador; Q longitudinal hipotético "
                            f"{plan.equivalent_channel_flow_m3_h:,.0f} m³/h; "
-                           f"vuelta volumétrica {plan.estimated_lap_min:.1f} min. "
+                           f"vuelta hipotética {plan.estimated_lap_min:.1f} min. "
                            "El color representa el campo 2D proyectado o Q/A por sección, "
                            "según la capa elegida; no predice remolinos "
                            "ni velocidad junto a tomas y boquillas.")
@@ -1418,23 +1338,22 @@ def main():
             f"aporta {plan.module_flow_full_speed_m3_h:,.0f} m³/h por unidad "
             f"a {local_head_ft:.1f} ft de TDH local equivalente a plena velocidad.\n"
             f"3. **Movimiento del río:** {active_modules} unidades dan "
-            f"{plan.installed_operating_flow_m3_h:,.0f} m³/h de descarga local estimada; "
-            f"con {transfer_pct:.1f}% de energía hidráulica útil supuesta, un factor de "
-            f"orientación de {plan.placement_effectiveness:.0%} y la resistencia "
-            f"Manning del DXF, la corriente longitudinal del escenario es "
-            f"{plan.equivalent_channel_flow_m3_h:,.0f} m³/h.\n"
-            f"4. **Tiempo de vuelta:** volumen ÷ circulación equivalente = "
-            f"{plan.estimated_lap_min:.1f} minutos, frente a la meta de "
-            f"{target_lap_min:.1f} minutos.\n"
+            f"{plan.installed_operating_flow_m3_h:,.0f} m³/h de descarga local estimada. "
+            "Este caudal no equivale automáticamente al que atraviesa cada sección.\n"
+            f"4. **Vuelta objetivo:** {target_lap_min:.1f} minutos requieren "
+            f"{plan.target_equivalent_flow_m3_h:,.0f} m³/h longitudinales. "
+            "La hoja de decisión compara su resistencia Manning con el impulso ideal de "
+            "las siete salidas; no predice que se alcance esa vuelta.\n"
             f"5. **Resistencia:** piso n={floor_n:.3f}; paredes n={wall_n_current:.3f} "
             f"en corriente y {wall_n_calm:.3f} en playa. El n compuesto cambia con el ancho "
-            f"del DXF y produce {plan.channel_friction_head_m:.3f} m de pérdida calculada "
-            "para el canal. Mayor rugosidad aumenta esa resistencia, baja la corriente y "
-            "prolonga la vuelta; no es la TDH del circuito local de las bombas."
+            f"del DXF. Los {plan.channel_friction_head_m:.3f} m de pérdida son solo del "
+            "ensayo con energía útil supuesta; no son una TDH medida ni la TDH del "
+            "circuito local de las bombas."
         )
-        st.info("La simulación es un escenario de fase 1, no una predicción validada de velocidad "
-                "del agua ni una certificación de seguridad. El 2% inicial de energía útil se eligió "
-                "para explorar sensibilidad, NO proviene de Riverflow ni de mediciones NYA. "
+        st.info("Los mapas de velocidad y la vuelta hipotética son ensayos de fase 1, no "
+                "predicciones validadas ni certificaciones de seguridad. La fracción de "
+                "energía útil elegida para esos ensayos NO proviene de Riverflow ni de "
+                "mediciones NYA. "
                 "Se usa una escala energética fija de 4 ft, mientras la TDH local seleccionada "
                 "solo determina el caudal de la curva. El balance incluye fricción Manning; "
                 "otras pérdidas se concentran en la fracción desconocida. Se necesitan "
@@ -1443,7 +1362,8 @@ def main():
                 "0,2892 ft² de área abierta. La app usa Q/área para la velocidad de salida "
                 "y, si se elige, sustituye el K manual por uno equivalente con Cd editable. "
                 "Cd no está medido. En Hidráulica se compara además un balance de impulso "
-                "independiente; no reemplaza la vuelta ni el mapa principales porque la "
+                "independiente; no convierte la vuelta ni el mapa hipotéticos en pronósticos "
+                "porque la "
                 "transferencia real del chorro al río sigue desconocida.")
         st.markdown("**Base disponible:** DXF, plano de montaje y curva H–Q en imagen. "
                     "La app explora supuestos editables sin pedir nuevas fichas a proveedores. "
@@ -1452,6 +1372,25 @@ def main():
                     "los jets y diseño sanitario definitivo.")
 
     with tab_hydraulic:
+        with st.expander("Ensayo heredado · energía útil hipotética, NO usar como pronóstico",
+                         expanded=False):
+            c1, c2, c3, c4, c5 = st.columns(5)
+            c1.metric("Meta de vuelta", f"{plan.target_lap_min:.1f} min")
+            c2.metric("Vuelta media V/Q", f"{plan.estimated_lap_min:.1f} min",
+                      help="Solo ensayo heredado con energía útil hipotética; no es un tiempo previsto.")
+            c3.metric("Caudal de unidades", f"{plan.installed_operating_flow_m3_h:,.0f} m³/h")
+            c4.metric("Corriente longitudinal · escenario", f"{plan.equivalent_channel_flow_m3_h:,.0f} m³/h")
+            c5.metric("Vuelta central 2D", f"{field.lane_lap_min[1]:.1f} min")
+            slow_lane = max(field.lane_lap_min)
+            if slow_lane <= plan.target_lap_min:
+                st.info(f"El escenario conceptual queda bajo la meta en las tres trayectorias 2D "
+                        f"({min(field.lane_lap_min):.1f}–{slow_lane:.1f} min). "
+                        "No es garantía de recorrido real ni cantidad de compra.")
+            else:
+                st.warning(f"La trayectoria más lenta del escenario 2D tarda {slow_lane:.1f} min, "
+                           f"por encima de la meta de {target_lap_min:.1f} min. "
+                           f"La aritmética V/Q indica {plan.required_active_modules} unidades, "
+                           "pero no dimensiona trayectorias ni constituye selección de compra.")
         st.subheader("Fricción del canal · Manning")
         m1, m2, m3, m4 = st.columns(4)
         m1.metric("n compuesto local mín–máx", f"{min(plan.station_manning_n):.3f}–{max(plan.station_manning_n):.3f}",
@@ -1677,6 +1616,10 @@ def main():
                    "no de una tabla certificada; se puede comparar con la recta entre anclas. "
                    "Fuera de 4–10 ft no se extrapola. "
                    "El punto de operación real requiere cruzar la curva de la bomba con la curva del circuito local.")
+        st.warning(f"Desde este perfil hasta la tabla de sensibilidad se muestra el ensayo "
+                   f"no calibrado con {transfer_pct:.1f}% de energía útil. Sus velocidades, "
+                   "tiempos y cantidades NO son pronósticos ni criterios de compra; "
+                   "la exigencia independiente se encuentra en la hoja de decisión.")
         st.plotly_chart(make_profile(model, plan), width="stretch")
         h1, h2, h3 = st.columns(3)
         h1.metric("V equivalente en canal de corriente", f"{plan.current_velocity_min_m_s:.3f}–{plan.current_velocity_max_m_s:.3f} m/s")
@@ -2237,9 +2180,11 @@ def main():
                         "**Agua nueva:** repone pérdidas; no equivale al caudal que circula por filtros.")
 
     with tab_scenarios:
-        st.subheader("Comparar dos escenarios sobre el mismo DXF")
-        st.caption("La geometría y la profundidad permanecen iguales. Los colores usan la misma escala "
-                   "en ambos planos; el campo lateral es una hipótesis 2D, no CFD validado.")
+        st.subheader("Comparar dos hipótesis sobre el mismo DXF")
+        st.warning(f"Los colores, velocidades y vueltas de ambos planos usan "
+                   f"{transfer_pct:.1f}% de energía útil no medida y un reparto lateral "
+                   "hipotético. Compare el caudal local de bomba y la filtración por "
+                   "separado; no interprete el mapa como predicción de corriente.")
         sc1, sc2, sc3 = st.columns(3)
         alternative_modules = sc1.number_input("Unidades Riverflow activas · alternativa",
                                                 1, 60, max(1, active_modules - 1), 1)
@@ -2449,11 +2394,132 @@ def main():
 
     with tab_decision:
         st.subheader("Hoja de decisión · NYA / Riverflow")
-        st.info("Lectura rápida: la geometría y el volumen proceden del DXF y el perfil de playa "
-                "supuesto; el caudal de cada bomba usa la curva disponible y pérdidas locales "
-                "editables. Velocidades y vuelta siguen dependiendo del 2 % no medido. "
-                "El ensayo 2D hereda ese caudal y no lo valida.")
-        st.markdown("**Preselección de cantidad y ubicación · mismo DXF y bombas Riverflow**")
+        st.info("Para comparar equipos, primero se calcula el caudal de CADA circuito local "
+                "con la curva CF104 disponible. Después se compara el impulso bruto de las "
+                "salidas con la resistencia Manning del DXF. Esta comparación muestra lo "
+                "que EXIGE una vuelta objetivo; no predice que el río la alcanzará. "
+                "El 2 % heredado no interviene en esta comprobación.")
+        if custom_circuits:
+            st.warning("La configuración activa usa el circuito editado de cada RF. "
+                       "Las alternativas de cantidad que aparecen en el archivo inferior "
+                       "suponen un circuito común; no representan las tuberías individuales.")
+
+        unit_flows = [flow * plan.speed_fraction
+                      for flow in plan.module_flows_full_speed_m3_h]
+        if local_points is not None:
+            unit_heads = [point.system_head_ft for point in local_points]
+            flow_source = "Circuito NYA por unidad · hipótesis"
+        elif local_point is not None:
+            unit_heads = [local_point.system_head_ft] * plan.active_modules
+            flow_source = "Circuito NYA común · hipótesis"
+        elif reference_point is not None:
+            unit_heads = [reference_point.system_head_ft] * plan.active_modules
+            flow_source = "Instalación de referencia · no NYA"
+        else:
+            unit_heads = [local_head_ft * plan.speed_fraction ** 2] * plan.active_modules
+            flow_source = "TDH manual · hipótesis"
+        if len(unit_flows) != plan.active_modules or len(unit_heads) != plan.active_modules:
+            st.error("La cantidad de puntos de operación no coincide con las unidades activas.")
+            st.stop()
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("CF104 activas", plan.active_modules)
+        c2.metric("Q local total · bombas", f"{sum(unit_flows):,.0f} m³/h")
+        c3.metric("Q local por unidad", f"{min(unit_flows):,.0f}–{max(unit_flows):,.0f} m³/h")
+        c4.metric("TDH local por unidad", f"{min(unit_heads):.1f}–{max(unit_heads):.1f} ft")
+        if abs(sum(unit_flows) - plan.installed_operating_flow_m3_h) > 0.05:
+            st.error("La suma de caudales locales no coincide con el plan. "
+                     "No utilice esta configuración para decidir equipos.")
+        st.caption("Los dos extremos rotulados de la curva H–Q son del fabricante; los "
+                   "puntos intermedios de la imagen se digitalizaron aproximadamente. "
+                   "Los circuitos NYA y la curva a RPM parcial siguen siendo hipótesis. "
+                   "Q local total NO es el caudal longitudinal del río.")
+        with st.expander("Ver caudal y TDH de cada circuito activo", expanded=False):
+            st.dataframe([{
+                "Unidad": f"RF-{i:02d}",
+                "Q local calculado (m³/h)": round(flow, 1),
+                "TDH local (ft)": round(head, 2),
+                "Origen": flow_source,
+            } for i, (flow, head) in enumerate(zip(unit_flows, unit_heads), 1)],
+                width="stretch", hide_index=True)
+            st.caption("La TDH local corresponde a tomas, tuberías y descarga de cada módulo, "
+                       "no a la resistencia del canal completo. Si se elige TDH manual, "
+                       "la tabla muestra un escenario, no un circuito resuelto.")
+
+        st.markdown("**Exigencia para una vuelta · sin porcentaje de transferencia supuesto**")
+        if nozzle_type == "7 puertos":
+            lap_pairs = list(zip(nozzle_screen.requirements, rough_screen.requirements))
+            if all(abs(row.lap_min - target_lap_min) > 1e-6 for row, _ in lap_pairs):
+                extra = screen_lap_band(model.stations, plan, perimeters,
+                                        lap_minutes=(target_lap_min,))
+                extra_rough = screen_lap_band(model.stations, plan, perimeters,
+                                              lap_minutes=(target_lap_min,),
+                                              roughness_scale=1.2)
+                lap_pairs.append((extra.requirements[0], extra_rough.requirements[0]))
+                lap_pairs.sort(key=lambda pair: pair[0].lap_min)
+            st.dataframe([{
+                "Vuelta objetivo": f"{row.lap_min:g} min",
+                "Velocidad efectiva": f"{row.effective_speed_m_s:.3f} m/s",
+                "Q longitudinal requerido": f"{row.required_channel_flow_m3_h:,.0f} m³/h",
+                "Impulso bruto necesario · Manning actual":
+                    f"{row.fraction_of_gross_nozzle_momentum:.1%}",
+                "Con n +20 % · sensibilidad":
+                    f"{higher.fraction_of_gross_nozzle_momentum:.1%}",
+            } for row, higher in lap_pairs], width="stretch", hide_index=True)
+            st.caption(f"Área abierta del acelerador de 7 puertos: "
+                       f"{NOZZLE_12X7_OPEN_AREA_M2:.5f} m². Velocidad teórica de salida: "
+                       f"{min(nozzle_screen.nozzle_exit_speeds_m_s):.2f}–"
+                       f"{max(nozzle_screen.nozzle_exit_speeds_m_s):.2f} m/s; "
+                       "NO es la velocidad de las personas ni de todo el río. "
+                       "La columna n +20 % es sensibilidad, no otro acabado confirmado.")
+            if any(row.fraction_of_gross_nozzle_momentum > 1 for row, _ in lap_pairs):
+                st.error("Alguna meta exige más del 100 % del impulso bruto ideal bajo "
+                         "estos supuestos: esa configuración no pasa la prueba teórica.")
+            else:
+                st.warning("Una exigencia menor del 100 % solo supera un límite ideal. "
+                           "No se conoce qué fracción llega realmente al río; aún no "
+                           "autoriza cantidad, ubicación o compra de bombas.")
+            if (max(nozzle_screen.nozzle_velocity_heads_ft) >
+                    plan.module_head_full_speed_ft * plan.speed_fraction ** 2):
+                st.warning("Q/área de salida implica más carga cinética que la TDH local "
+                           "elegida. Revise el punto bomba–circuito: no use ambos como "
+                           "datos físicos confirmados de la misma operación.")
+            with st.expander("Comparar cantidades · solo límite ideal", expanded=False):
+                candidate_counts = sorted({max(1, min(60, plan.active_modules + offset))
+                                           for offset in (-8, -4, 0, 4, 8)})
+                st.dataframe([{
+                    "CF104 activas": count,
+                    "Impulso bruto exigido · 35 min": f"{fractions[1]:.1%}",
+                    "Impulso bruto exigido · 40 min": f"{fractions[2]:.1%}",
+                } for count, fractions in count_sensitivity(
+                    nozzle_screen, plan.active_modules, candidate_counts)],
+                    width="stretch", hide_index=True)
+                st.caption("Escala el caudal y orientación medios de la configuración activa. "
+                           "No verifica tuberías nuevas, alcance de chorros, márgenes, "
+                           "espaciamiento o seguridad. Mover una bomba no cambia este "
+                           "balance global; requiere comprobar su efecto local.")
+            with st.expander("Cómo se calcula y qué sigue sin conocerse", expanded=False):
+                st.markdown(
+                    "- **Q por bomba:** intersección de la curva CF104 con las pérdidas "
+                    "del circuito local, o punto de referencia/TDH manual elegido.\n"
+                    "- **Q longitudinal requerido:** volumen DXF + perfil ÷ tiempo de vuelta; "
+                    "no se obtiene sumando las bombas.\n"
+                    "- **Rapidez de salida:** Q de cada bomba ÷ área abierta documentada "
+                    "de siete puertos.\n"
+                    "- **Impulso exigido:** resistencia Manning integrada por secciones "
+                    "÷ impulso bruto ideal de las salidas orientadas.\n"
+                    "- **No medido:** transferencia real tras tomas, mezcla, curvas y "
+                    "playa; velocidades por carril, usuarios y convergencia del ensayo SPH. "
+                    "Por eso la tabla es un filtro de factibilidad, no un tiempo previsto.")
+        else:
+            st.warning("No hay área abierta documentada para la salida de tres puertos; "
+                       "no se le atribuye el impulso calculado para los siete puertos.")
+
+    with tab_decision, st.expander("Archivo · sensibilidad energética no calibrada (2 %)",
+                                  expanded=False):
+        st.caption("Estos resultados heredados usan una fracción de energía desconocida. "
+                   "No sirven para elegir una cantidad de compra ni se mezclan con la "
+                   "tabla de impulso anterior.")
+        st.markdown("**Archivo de comparación de cantidades · energía útil no medida**")
         st.caption("Compare cantidades activas manteniendo la velocidad del variador, circuito "
                    "local, rugosidad, profundidad y recambio elegidos. La fila de la cantidad "
                    "actual conserva sus ubicaciones y ángulos editados; las alternativas se "
@@ -2620,6 +2686,7 @@ def main():
                    "La trayectoria lenta proviene del campo 2D conceptual, no de CFD calibrado. "
                    "Una meta alcanzada aquí no autoriza comprar equipos.")
 
+    with tab_decision:
         st.markdown("**Tratamiento independiente del mismo escenario**")
         d1, d2, d3, d4 = st.columns(4)
         d1.metric("Volumen calculado", f"{plan.volume_m3:,.0f} m³")
@@ -2720,7 +2787,8 @@ def main():
         ), width="stretch", hide_index=True)
         st.warning("Los planos y la carta Brannon aportan puntos de operación de referencia, "
                    "no longitudes ni pérdidas confirmadas para NYA. Elegir esa referencia sí "
-                   "cambia el caudal, TDH y vuelta del escenario activo; el 2 % de energía "
+                   "cambia el caudal y la TDH local estimados; la vuelta del ensayo también "
+                   "cambia, pero continúa condicionada por la energía "
                    "útil y el consumo eléctrico real continúan sin calibración.")
         st.caption("La filtración permanece como sistema separado. La prueba hidrostática publicada "
                    "por Riverflow aplica a un circuito de propulsión abierto de baja presión; "
