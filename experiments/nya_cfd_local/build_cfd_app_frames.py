@@ -77,7 +77,8 @@ def nearest_time_folder(case: Path, target: int) -> tuple[float, Path]:
 
 def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
-    dxf_sha = hashlib.sha256((ROOT / "RECORRIDO.dxf").read_bytes()).hexdigest()
+    dxf_bytes = (ROOT / "RECORRIDO.dxf").read_bytes().replace(b"\r\n", b"\n")
+    dxf_sha = hashlib.sha256(dxf_bytes).hexdigest()
     manifest = {
         "schema": 1,
         "source": "NYA local OpenFOAM 14 RANS k-epsilon; Manning equivalent drag",

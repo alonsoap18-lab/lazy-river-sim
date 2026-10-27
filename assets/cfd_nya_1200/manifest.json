@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "source": "NYA local OpenFOAM 14 RANS k-epsilon; Manning equivalent drag",
-  "source_dxf_sha256": "4d3a426ae2fb0acffd4b4d0a6d10cc936e94ba83d04fef7a21bfe5e4082bb5f0",
+  "source_dxf_sha256": "1efc2aebbb8b90f3e8d1a8b202552c92422d46b102b587425f4a1d2eeab0d373",
   "length_m": 536.0,
   "mesh_cells": 4056,
   "frame_targets_s": [

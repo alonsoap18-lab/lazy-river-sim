@@ -5,7 +5,7 @@ import unittest
 
 from core.riverflow_cfd_decision import (attention_rows,
     compare_editable_to_saved, section_profile)
-from core.riverflow_cfd_saved import COUNTS, load_metadata
+from core.riverflow_cfd_saved import COUNTS, load_metadata, source_dxf_matches
 
 
 CASE_NAMES = {16: "16_removed_four", 19: "19_removed",
@@ -13,6 +13,9 @@ CASE_NAMES = {16: "16_removed_four", 19: "19_removed",
 
 
 class SavedCfdDecisionTest(unittest.TestCase):
+    def test_source_dxf_matches_across_checkout_line_endings(self):
+        self.assertTrue(source_dxf_matches())
+
     def test_section_lap_reproduces_saved_source(self):
         _, results = load_metadata()
         for count in COUNTS:

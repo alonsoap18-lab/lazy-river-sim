@@ -67,7 +67,9 @@ def load_scenario(count: int) -> dict[str, np.ndarray]:
 
 def source_dxf_matches() -> bool:
     manifest, _ = load_metadata()
-    return (hashlib.sha256((ROOT / "RECORRIDO.dxf").read_bytes()).hexdigest()
+    # Git stores the DXF with LF while Windows checks it out with CRLF.
+    normalized = (ROOT / "RECORRIDO.dxf").read_bytes().replace(b"\r\n", b"\n")
+    return (hashlib.sha256(normalized).hexdigest()
             == manifest["source_dxf_sha256"])
 
 
