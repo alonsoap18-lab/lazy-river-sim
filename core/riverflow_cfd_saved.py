@@ -6,6 +6,7 @@ These fixed fields never recalculate when Riverflow app controls change.
 from __future__ import annotations
 
 from functools import lru_cache
+from copy import deepcopy
 import hashlib
 import json
 from pathlib import Path
@@ -116,8 +117,7 @@ def _arrows(xy: np.ndarray, u: np.ndarray) -> tuple[list[float | None],
     return xx, yy
 
 
-def _animation_controls(times: np.ndarray, *, frame_ms: int) -> tuple[list[dict],
-                                                                     list[dict]]:
+def _animation_controls(times: np.ndarray, *, frame_ms: int) -> tuple[list[dict], list[dict]]:
     names = [str(index) for index in range(len(times))]
     slider = [dict(active=len(times)-1, currentvalue=dict(prefix="Tiempo físico: ", suffix=" s"),
                    steps=[dict(label=f"{time:.0f}", method="animate",
@@ -249,9 +249,71 @@ def figure_3d(count: int, layer: str = "velocidad",
         height=790, uirevision=f"nyacfd3d-{count}-{layer}-{vertical_scale}",
         margin=dict(l=0, r=0, t=65, b=70),
         scene=dict(aspectmode="data", dragmode="orbit",
+                   camera=dict(eye=dict(x=2.2, y=2.2, z=1.5)),
+                   uirevision=f"nyacfd3d-camera-{count}-{vertical_scale}",
                    xaxis_title="Este (m)", yaxis_title="Norte (m)",
                    zaxis_title=f"Cota ×{vertical_scale:g} solo visual"))
     return fig
+
+
+def animated_3d_html(figure: go.Figure, height: int = 790) -> str:
+    """Play saved 3D fields by restyling one trace, leaving the camera intact."""
+    if not figure.frames:
+        raise ValueError("El visor animado necesita fotogramas de velocidad")
+    fields = [np.asarray(frame.data[0].marker.color, dtype=float).tolist()
+              for frame in figure.frames]
+    times = [str(step["label"]) for step in figure.layout.sliders[0].steps]
+    plot = deepcopy(figure)
+    plot.frames = []
+    plot.layout.sliders = ()
+    plot.layout.updatemenus = ()
+    plot.update_layout(height=height - 64, autosize=True)
+    controls = """
+    <div style="display:flex;align-items:center;gap:12px;padding:8px 12px;
+                font:14px sans-serif;color:#243242">
+      <button id="nya-play" type="button">▶ Reproducir</button>
+      <button id="nya-pause" type="button">Pausa</button>
+      <input id="nya-time" type="range" min="0" style="flex:1" />
+      <span id="nya-label" style="min-width:115px;text-align:right"></span>
+    </div>
+    """
+    script = """
+    const gd = document.getElementById('{plot_id}');
+    const fields = __FIELDS__;
+    const times = __TIMES__;
+    const slider = document.getElementById('nya-time');
+    const label = document.getElementById('nya-label');
+    let index = fields.length - 1;
+    let timer = null;
+    slider.max = fields.length - 1;
+    slider.value = index;
+    label.textContent = 'Tiempo físico: ' + times[index] + ' s';
+    async function showFrame(next) {
+      index = next;
+      await Plotly.restyle(gd, {'marker.color': [fields[index]]}, [4]);
+      slider.value = index;
+      label.textContent = 'Tiempo físico: ' + times[index] + ' s';
+    }
+    function pause() { if (timer !== null) clearTimeout(timer); timer = null; }
+    async function advance() {
+      if (timer === null) return;
+      await showFrame((index + 1) % fields.length);
+      timer = setTimeout(advance, 650);
+    }
+    document.getElementById('nya-play').onclick = async () => {
+      pause();
+      await showFrame(0);
+      timer = setTimeout(advance, 650);
+    };
+    document.getElementById('nya-pause').onclick = pause;
+    slider.oninput = async () => { pause(); await showFrame(Number(slider.value)); };
+    """.replace("__FIELDS__", json.dumps(fields, separators=(",", ":")))\
+       .replace("__TIMES__", json.dumps(times))
+    return controls + plot.to_html(full_html=False, include_plotlyjs=True,
+                                   div_id="nya-cfd-3d",
+                                   config={"responsive": True, "scrollZoom": True,
+                                           "displayModeBar": True},
+                                   post_script=script)
 
 
 def figure_comparison() -> go.Figure:
@@ -392,6 +454,9 @@ def render_saved_cfd(plan, speed_pct: int, uploaded_dxf: bool, *,
         mode = "k" if layer == "Turbulencia k" else "velocidad"
         if view == "2D animado":
             figure = figure_2d(scenario, mode)
+            st.plotly_chart(figure, width="stretch",
+                            config={"scrollZoom": True, "displayModeBar": True},
+                            key=f"rf_saved_cfd_{view}_{scenario}_{mode}")
         else:
             scale = st.select_slider("Altura visual del 3D",
                                      options=(1, 5, 10, 20), value=20,
@@ -402,9 +467,21 @@ def render_saved_cfd(plan, speed_pct: int, uploaded_dxf: bool, *,
                        "los cálculos conservan la geometría original. Puedes girar, "
                        "arrastrar y acercar la cámara con el ratón.")
             figure = figure_3d(scenario, mode, float(scale))
-        st.plotly_chart(figure, width="stretch",
-                        config={"scrollZoom": True, "displayModeBar": True},
-                        key=f"rf_saved_cfd_{view}_{scenario}_{mode}")
+            if mode == "velocidad":
+                import streamlit.components.v1 as components
+
+                viewer_height = st.slider("Alto del visor 3D en pantalla (px)",
+                                          min_value=600, max_value=1200,
+                                          value=800, step=100,
+                                          key="rf_saved_cfd_viewer_height")
+                st.caption("Ajusta el tamaño del visor, luego acerca o gira el río. "
+                           "Al reproducir, se conserva esa vista personalizada.")
+                components.html(animated_3d_html(figure, viewer_height),
+                                height=viewer_height, scrolling=False)
+            else:
+                st.plotly_chart(figure, width="stretch",
+                                config={"scrollZoom": True, "displayModeBar": True},
+                                key=f"rf_saved_cfd_{view}_{scenario}_{mode}")
     else:
         st.dataframe(comparison_rows(), width="stretch", hide_index=True)
         st.plotly_chart(figure_comparison(), width="stretch",
