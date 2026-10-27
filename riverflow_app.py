@@ -1062,7 +1062,13 @@ def main():
         st.plotly_chart(make_map(model, plan, show_installation, show_heatmap, field,
                                  section_checks), width="stretch", key="rf_main_2d_map")
         st.divider()
-        render_saved_cfd(plan, speed_pct, uploaded is not None)
+        render_saved_cfd(
+            plan, speed_pct, uploaded is not None,
+            floor_n=floor_n, wall_n_current=wall_n_current,
+            wall_n_calm=wall_n_calm, depth_m=depth_m, nozzle_type=nozzle_type,
+            beach_flat_m=(beach_geometry.beach_max_extra_width_m *
+                          beach_first_share / 100 if beach_geometry else None),
+            beach_ramp_pct=beach_ramp_pct)
         if section_checks is not None:
             flagged_checks = [check for check in section_checks if check.status != "Consistente"]
             c_a, c_b, c_c = st.columns(3)

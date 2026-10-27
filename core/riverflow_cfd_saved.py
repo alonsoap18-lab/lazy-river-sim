@@ -306,8 +306,13 @@ def comparison_rows() -> list[dict]:
     return rows
 
 
-def render_saved_cfd(plan, speed_pct: int, uploaded_dxf: bool) -> None:
+def render_saved_cfd(plan, speed_pct: int, uploaded_dxf: bool, *,
+                     floor_n: float, wall_n_current: float, wall_n_calm: float,
+                     depth_m: float, nozzle_type: str,
+                     beach_flat_m: float | None, beach_ramp_pct: float) -> None:
     import streamlit as st
+    from core.riverflow_cfd_decision import (attention_rows,
+        compare_editable_to_saved, section_comparison_figure, section_profile)
 
     try:
         manifest, results = load_metadata()
@@ -332,10 +337,22 @@ def render_saved_cfd(plan, speed_pct: int, uploaded_dxf: bool) -> None:
                             index=COUNTS.index(initial_scenario),
                             format_func=lambda number: NAMES[number],
                             key="rf_saved_cfd_count")
-    st.info(f"Escenario editable actual: {plan.active_modules} bombas, variador {speed_pct} %. "
-            f"Corrida CFD mostrada: {scenario} bombas y 2014 US gpm de referencia por bomba. "
-            "Mover bombas, cambiar caudal o variador en el menú no modifica estos campos "
-            "guardados; las posiciones del ensayo se ven como rombos naranjas.")
+    compare_rows, comparison = compare_editable_to_saved(
+        plan, scenario, floor_n, wall_n_current, wall_n_calm, depth_m,
+        uploaded_dxf, source_dxf_matches(), nozzle_type, beach_flat_m,
+        beach_ramp_pct)
+    st.markdown("**Entradas editables frente a la corrida guardada**")
+    st.dataframe([{**row, "Coincide": "Sí" if row["Coincide"] else "No"}
+                  for row in compare_rows], width="stretch", hide_index=True)
+    if comparison["all_match"]:
+        st.info("Las entradas comparadas son próximas a las del ensayo. Su campo sigue "
+                "archivado: editar una bomba no recalcula OpenFOAM. La orientación local "
+                "de las siete salidas tampoco está resuelta en este CFD.")
+    else:
+        st.warning("El escenario editable y esta corrida tienen entradas diferentes. "
+                   "Sus velocidades y vuelta no son resultados del menú actual. "
+                   "Se necesita ejecutar otro CFD para evaluar las nuevas posiciones, "
+                   "caudales, rugosidades o geometría.")
     case_name = {16: "16_removed_four", 19: "19_removed",
                  20: "20_original", 21: "21_added_downstream"}[scenario]
     current = results["cases"][case_name]["snapshots"]["1200"]
@@ -393,6 +410,46 @@ def render_saved_cfd(plan, speed_pct: int, uploaded_dxf: bool) -> None:
                    "debajo de 0,15 m/s. Las 20 reducen ese porcentaje a 21,4 %. "
                    "La unidad 21 no mejora ese indicador. Ninguna cifra determina "
                    "todavía la cantidad definitiva de compra.")
+    st.markdown("**Dónde cambia el avance · secciones de 8 m**")
+    st.plotly_chart(section_comparison_figure(scenario), width="stretch",
+                    config={"scrollZoom": True, "displayModeBar": True},
+                    key=f"rf_saved_cfd_sections_{scenario}")
+    st.caption("Cada línea usa la velocidad longitudinal media ponderada por volumen "
+               "de las celdas de una sección; las cuatro corridas comparten malla. "
+               "Las bandas de 0,15 y 0,50 m/s son filtros de exploración, no límites "
+               "de seguridad. Naranja abajo marca descargas de la corrida elegida. "
+               "La playa principal sombreada se interpreta aparte.")
+    alerts = attention_rows(scenario)
+    wide = [row for row in alerts if row["Observación"].startswith("Paso ancho")]
+    narrow = [row for row in alerts if row["Observación"].startswith("Paso angosto")]
+    c_wide, c_narrow = st.columns(2)
+    c_wide.metric("Pasos anchos con carril lento", len(wide))
+    c_narrow.metric("Pasos angostos con avance alto", len(narrow))
+    for title, values in (("Pasos anchos a revisar", wide),
+                          ("Pasos angostos a revisar", narrow)):
+        st.markdown(f"**{title}**")
+        if values:
+            st.dataframe([{key: value for key, value in row.items()
+                           if key != "severidad"} for row in values[:6]],
+                         width="stretch", hide_index=True)
+        else:
+            st.caption("Ninguna sección supera el filtro de este ensayo.")
+    with st.expander("Ver las 67 secciones del escenario seleccionado"):
+        st.dataframe([{
+            "Tramo": f"{row['inicio_m']:.0f}–{row['fin_m']:.0f} m",
+            "Zona": row["zona"], "Ancho DXF (m)": round(row["ancho_m"], 1),
+            "Avance medio (m/s)": round(row["avance_m_s"], 3),
+            "Interior (m/s)": round(row["interior_m_s"], 3),
+            "Exterior (m/s)": round(row["exterior_m_s"], 3),
+            "Celdas <0,15 (%)": round(row["celdas_lentas_pct"], 1),
+            "Celdas >0,50 (%)": round(row["celdas_rapidas_pct"], 1),
+            "Bomba más próxima": row["bomba_cercana"],
+            "Distancia (m)": round(row["distancia_bomba_m"], 1),
+        } for row in section_profile(scenario)], width="stretch", hide_index=True)
+    st.caption("La bomba más cercana solo ubica un equipo en el plano. No prueba que "
+               "esa bomba cause el avance observado. En estrechamientos, la reducción "
+               "de área puede elevar la velocidad aunque se quiten bombas cercanas; "
+               "cada cambio de ubicación exige repetir el CFD.")
     st.caption("Límites: superficie libre y bañistas no modelados; salida de siete puertos "
                "agregada, caudal Riverflow no comprobado en NYA, malla y turbulencia sin "
                "calibración física. La filtración es un circuito independiente.")

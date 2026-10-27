@@ -37,11 +37,16 @@ def main() -> None:
     stations = model.stations[:-1]
     axis = (np.asarray([[s["x"], s["y"]] for s in stations])-origin)*scale
     nearest = cKDTree(axis).query(centres[:, :2])[1]
+    widths = np.asarray([s["width_m"] for s in stations], dtype=float)
+    normals = np.asarray([[s["normal_x"], s["normal_y"]] for s in stations])
+    lateral_m = np.einsum("ij,ij->i", centres[:, :2]-axis[nearest], normals[nearest])
     data = {
         "centres_xyz_m": centres.astype(np.float32),
         "cell_chainage_m": np.asarray([stations[i]["chainage_m"] for i in nearest], dtype=np.float32),
         "cell_tangent_xy": np.asarray([[stations[i]["tangent_x"], stations[i]["tangent_y"]]
                                        for i in nearest], dtype=np.float32),
+        "cell_width_m": widths[nearest].astype(np.float32),
+        "cell_lateral_eta": (2*lateral_m/widths[nearest]).astype(np.float32),
         "cell_volume_m3": np.asarray([ConvexHull(cell_points[cell]).volume
                                        for cell in connectivity], dtype=np.float32),
     }
