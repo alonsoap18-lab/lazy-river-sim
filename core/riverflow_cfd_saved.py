@@ -186,11 +186,13 @@ def figure_2d(count: int, layer: str = "velocidad") -> go.Figure:
         sliders, buttons = _animation_controls(data["time_s"], frame_ms=650)
         fig.update_layout(sliders=sliders, updatemenus=buttons)
     fig.update_layout(
-        title=f"NYA 536 m · {count} CF104 equivalentes · {'campo transitorio' if layer == 'velocidad' else 'k a 1200 s'}",
-        xaxis=dict(title="Este local (m)", scaleanchor="y", scaleratio=1),
-        yaxis=dict(title="Norte local (m)"),
+        title=dict(text=f"CFD NYA · {count} bombas", x=.46, y=.98),
+        xaxis=dict(title="Este local (m)", scaleanchor="y", scaleratio=1,
+                   constrain="domain"),
+        yaxis=dict(title="Norte local (m)", constrain="domain"),
+        showlegend=False,
         height=790, uirevision=f"nyacfd2d-{count}-{layer}",
-        margin=dict(l=20, r=25, t=65, b=70))
+        margin=dict(l=20, r=25, t=95, b=70))
     return fig
 
 
@@ -283,7 +285,7 @@ def figure_comparison() -> go.Figure:
         axis_name = f"x{index+1}" if index else "x"
         fig.update_xaxes(title_text="Este local (m)", row=row, col=col)
         fig.update_yaxes(title_text="Norte local (m)", scaleanchor=axis_name,
-                         scaleratio=1, row=row, col=col)
+                         scaleratio=1, constrain="domain", row=row, col=col)
     fig.update_layout(title="Misma escala de color · cuatro escenarios CFD a 1200 s",
                       height=1050, margin=dict(l=20, r=20, t=70, b=40))
     return fig
