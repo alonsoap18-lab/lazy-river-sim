@@ -2992,9 +2992,13 @@ def main():
         st.image(os.path.join(ASSET_DIR, "riverflow_pump_curve.jpg"),
                  caption="Curva H–Q facilitada por Riverflow: CF104, 2,440 US GPM a 4 ft y 1,220 US GPM a 10 ft.",
                  width="stretch")
-        st.image(os.path.join(ASSET_DIR, "riverflow_espada_reference.jpeg"),
-                 caption="Plano recibido: Espada Amenity, bomba #2 (hoja 3 de 9). Referencia constructiva de otro proyecto; no es un plano aprobado para NYA.",
-                 width="stretch")
+        try:
+            st.image(os.path.join(ASSET_DIR, "riverflow_espada_reference.jpeg"),
+                     caption="Plano recibido: Espada Amenity, bomba #2 (hoja 3 de 9). Referencia constructiva de otro proyecto; no es un plano aprobado para NYA.",
+                     width="stretch")
+        except OSError:
+            st.warning("La imagen de referencia Espada no se pudo leer en esta sesión. "
+                       "El cálculo del DXF y las hojas de flujo siguen disponibles.")
 
     st.markdown("**Datos de la curva facilitada por Riverflow:** "
                 f"{RIVERFLOW_RATED_GPM:,.0f} US GPM ≈ {RIVERFLOW_RATED_M3_H:.1f} m³/h a 4 ft; "
