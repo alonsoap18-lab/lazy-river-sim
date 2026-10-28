@@ -375,22 +375,35 @@ def comparison_rows() -> list[dict]:
 def render_saved_cfd(plan, speed_pct: int, uploaded_dxf: bool, *,
                      floor_n: float, wall_n_current: float, wall_n_calm: float,
                      depth_m: float, nozzle_type: str,
-                     beach_flat_m: float | None, beach_ramp_pct: float) -> None:
+                     beach_flat_m: float | None, beach_ramp_pct: float,
+                     uploaded_sha256: str | None = None) -> None:
     import streamlit as st
     if uploaded_dxf:
-        st.subheader("OpenFOAM · el DXF cargado aún no tiene una corrida")
-        st.warning(
-            "La simulación OpenFOAM guardada se calculó con el DXF NYA original de "
-            "536 m. No se puede actualizar cambiando solo el contorno del gráfico: "
-            "para este plano hay que crear otra malla, ubicar las tomas y descargas, "
-            "ejecutar el solver y comprobar el resultado. Por eso no se muestran "
-            "velocidades ni tiempos OpenFOAM del diseño anterior como resultado actual."
-        )
-        st.info(
-            f"DXF activo: {plan.length_m:.1f} m de recorrido. El plano 2D/3D "
-            "de arriba y «Estudio de flujo · mover bombas» usan esta geometría; "
-            "este último es un ensayo exploratorio, no una corrida OpenFOAM."
-        )
+        from core.riverflow_cfd_uploaded import render_matching_run
+        matched = bool(uploaded_sha256 and render_matching_run(
+            uploaded_sha256, active_length_m=plan.length_m,
+            active_depth_m=depth_m, active_pumps=plan.active_modules,
+            active_floor_n=floor_n, active_wall_n=wall_n_current,
+            active_flow_each_m3_h=(plan.module_flow_full_speed_m3_h *
+                                   plan.speed_fraction),
+            active_nozzle_type=nozzle_type,
+            active_chainages_m=plan.module_chainages_m,
+            active_banks=plan.module_banks,
+            active_angles_deg=plan.module_angles_deg))
+        if not matched:
+            st.subheader("OpenFOAM · el DXF cargado aún no tiene una corrida")
+            st.warning(
+                "La simulación OpenFOAM guardada se calculó con el DXF NYA original de "
+                "536 m. No se puede actualizar cambiando solo el contorno del gráfico: "
+                "para este plano hay que crear otra malla, ubicar las tomas y descargas, "
+                "ejecutar el solver y comprobar el resultado. Por eso no se muestran "
+                "velocidades ni tiempos OpenFOAM del diseño anterior como resultado actual."
+            )
+            st.info(
+                f"DXF activo: {plan.length_m:.1f} m de recorrido. El plano 2D/3D "
+                "de arriba y «Estudio de flujo · mover bombas» usan esta geometría; "
+                "este último es un ensayo exploratorio, no una corrida OpenFOAM."
+            )
         if not st.toggle("Ver como referencia la corrida OpenFOAM del DXF NYA original",
                          value=False, key="rf_show_archived_cfd"):
             return

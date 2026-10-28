@@ -1,0 +1,8 @@
+{
+  "schema": 1,
+  "source_dxf_sha256": "47154b381560b10b58d2729f9e2ae79dc90ff1f24af8a7640d36a41b15f68060",
+  "scenarios": {
+    "reference20": "20 bombas · posiciones del estudio original",
+    "automatic": "20 bombas · redistribución por ancho y curvas"
+  }
+}

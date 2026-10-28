@@ -849,8 +849,9 @@ def main():
                 f"{model.geometry.channel_width_min_m:.1f}–"
                 f"{model.geometry.channel_width_max_m:.1f} m. Volumen, caudal objetivo, "
                 "secciones, fricción, distribución propuesta de bombas, mapa 2D "
-                "exploratorio y filtración usan este archivo. Las corridas OpenFOAM y SPH "
-                "guardadas de NYA no representan este nuevo diseño.")
+                "exploratorio y filtración usan este archivo. Los archivos históricos "
+                "OpenFOAM y SPH del NYA original no representan este diseño; una "
+                "corrida nueva solo se muestra si coincide la huella SHA-256 del DXF.")
     saved_geometry_matches = (uploaded_bytes is None and
                               abs(plan.length_m - 536.0) < .01 and
                               source_dxf_matches())
@@ -1173,7 +1174,9 @@ def main():
             wall_n_calm=wall_n_calm, depth_m=depth_m, nozzle_type=nozzle_type,
             beach_flat_m=(beach_geometry.beach_max_extra_width_m *
                           beach_first_share / 100 if beach_geometry else None),
-            beach_ramp_pct=beach_ramp_pct)
+            beach_ramp_pct=beach_ramp_pct,
+            uploaded_sha256=(hashlib.sha256(uploaded_bytes).hexdigest()
+                             if uploaded_bytes is not None else None))
         if section_checks is not None:
             flagged_checks = [check for check in section_checks if check.status != "Consistente"]
             c_a, c_b, c_c = st.columns(3)

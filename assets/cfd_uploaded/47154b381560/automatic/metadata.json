@@ -1,0 +1,916 @@
+{
+  "status": "uploaded-DXF local OpenFOAM 14 screening; not validated design",
+  "source_dxf_sha256": "47154b381560b10b58d2729f9e2ae79dc90ff1f24af8a7640d36a41b15f68060",
+  "source_dxf_name": "lazy river 28-10-26.dxf",
+  "length_m": 536.0,
+  "mesh_cells": 5352,
+  "mesh_triangles": 1338,
+  "area_dxf_m2": 6833.208756766206,
+  "volume_mesh_m3": 8096.6962756156245,
+  "depth_min_m": 0.7121976051402574,
+  "depth_max_m": 1.2,
+  "beach_flat_width_m": 22.220009745232062,
+  "beach_ramp_slope": 0.065,
+  "floor_manning_n": 0.013,
+  "wall_manning_n": 0.025,
+  "manning_equivalent_bulk_drag_applied": true,
+  "forchheimer_f_min_1_m": 0.0034497075875412663,
+  "forchheimer_f_max_1_m": 0.007845110077803006,
+  "active_pumps": 20,
+  "stations": [
+    {
+      "station": 1,
+      "chainage_m": 26.49965004396077,
+      "bank": "Exterior",
+      "zone_names": {
+        "suctionA": "p01sA",
+        "suctionB": "p01sB",
+        "jet": "p01jet"
+      },
+      "jet_target_xy_m": [
+        -2.938239223388337,
+        -81.952944577753
+      ],
+      "jet_tangent_xy": [
+        0.4750052237017822,
+        0.8799829756626089
+      ],
+      "zones": {
+        "suctionA": {
+          "triangle": 572,
+          "offset_from_target_m": 0.5474993166971986,
+          "cell_xy_m": [
+            -5.683383046666666,
+            -91.16674100333334
+          ]
+        },
+        "suctionB": {
+          "triangle": 571,
+          "offset_from_target_m": 0.6474522047662439,
+          "cell_xy_m": [
+            -5.500828046666666,
+            -87.99669521666665
+          ]
+        },
+        "jet": {
+          "triangle": 100,
+          "offset_from_target_m": 1.3439605799337786,
+          "cell_xy_m": [
+            -2.070858223333333,
+            -80.92635788333332
+          ]
+        }
+      }
+    },
+    {
+      "station": 2,
+      "chainage_m": 47.95462525126099,
+      "bank": "Exterior",
+      "zone_names": {
+        "suctionA": "p02sA",
+        "suctionB": "p02sB",
+        "jet": "p02jet"
+      },
+      "jet_target_xy_m": [
+        2.4144117583698703,
+        -60.14449735017767
+      ],
+      "jet_tangent_xy": [
+        0.2372800799445582,
+        0.9714412816333801
+      ],
+      "zones": {
+        "suctionA": {
+          "triangle": 353,
+          "offset_from_target_m": 1.3171950929539407,
+          "cell_xy_m": [
+            1.26231591,
+            -68.34074152333334
+          ]
+        },
+        "suctionB": {
+          "triangle": 346,
+          "offset_from_target_m": 0.5136489712115936,
+          "cell_xy_m": [
+            0.92996526,
+            -65.69398584666666
+          ]
+        },
+        "jet": {
+          "triangle": 543,
+          "offset_from_target_m": 0.2920574200784634,
+          "cell_xy_m": [
+            2.123761996666667,
+            -60.173137403333335
+          ]
+        }
+      }
+    },
+    {
+      "station": 3,
+      "chainage_m": 71.88138521709287,
+      "bank": "Exterior",
+      "zone_names": {
+        "suctionA": "p03sA",
+        "suctionB": "p03sB",
+        "jet": "p03jet"
+      },
+      "jet_target_xy_m": [
+        11.447513129239368,
+        -40.09351887345332
+      ],
+      "jet_tangent_xy": [
+        0.6207117832961198,
+        0.7840388268940198
+      ],
+      "zones": {
+        "suctionA": {
+          "triangle": 882,
+          "offset_from_target_m": 0.5468088109469051,
+          "cell_xy_m": [
+            7.892563599999999,
+            -46.35646236333333
+          ]
+        },
+        "suctionB": {
+          "triangle": 687,
+          "offset_from_target_m": 1.1091100490552754,
+          "cell_xy_m": [
+            8.386946036666666,
+            -43.29957303333333
+          ]
+        },
+        "jet": {
+          "triangle": 842,
+          "offset_from_target_m": 1.3971513928222132,
+          "cell_xy_m": [
+            11.082678340000001,
+            -41.44219511
+          ]
+        }
+      }
+    },
+    {
+      "station": 4,
+      "chainage_m": 95.66435665680167,
+      "bank": "Exterior",
+      "zone_names": {
+        "suctionA": "p04sA",
+        "suctionB": "p04sB",
+        "jet": "p04jet"
+      },
+      "jet_target_xy_m": [
+        28.190977983918696,
+        -22.987350150803657
+      ],
+      "jet_tangent_xy": [
+        0.5965635696309621,
+        0.8025658274491659
+      ],
+      "zones": {
+        "suctionA": {
+          "triangle": 457,
+          "offset_from_target_m": 1.5760931157472304,
+          "cell_xy_m": [
+            21.807216933333333,
+            -32.17628028666667
+          ]
+        },
+        "suctionB": {
+          "triangle": 63,
+          "offset_from_target_m": 0.6009518416264328,
+          "cell_xy_m": [
+            23.81018844666667,
+            -29.262581649999998
+          ]
+        },
+        "jet": {
+          "triangle": 37,
+          "offset_from_target_m": 1.4423606274803877,
+          "cell_xy_m": [
+            27.97708559333334,
+            -24.413763213333336
+          ]
+        }
+      }
+    },
+    {
+      "station": 5,
+      "chainage_m": 120.02467648551716,
+      "bank": "Exterior",
+      "zone_names": {
+        "suctionA": "p05sA",
+        "suctionB": "p05sB",
+        "jet": "p05jet"
+      },
+      "jet_target_xy_m": [
+        38.932257647596494,
+        -0.986907190151942
+      ],
+      "jet_tangent_xy": [
+        0.4699203119695895,
+        0.8827088423701237
+      ],
+      "zones": {
+        "suctionA": {
+          "triangle": 448,
+          "offset_from_target_m": 0.252640945938986,
+          "cell_xy_m": [
+            33.95348013666666,
+            -8.460623336666666
+          ]
+        },
+        "suctionB": {
+          "triangle": 447,
+          "offset_from_target_m": 1.245528561026833,
+          "cell_xy_m": [
+            35.98876125,
+            -4.8235194733333335
+          ]
+        },
+        "jet": {
+          "triangle": 442,
+          "offset_from_target_m": 0.710216016288838,
+          "cell_xy_m": [
+            38.32059287333334,
+            -1.3478406933333333
+          ]
+        }
+      }
+    },
+    {
+      "station": 6,
+      "chainage_m": 143.90385574845942,
+      "bank": "Interior",
+      "zone_names": {
+        "suctionA": "p06sA",
+        "suctionB": "p06sB",
+        "jet": "p06jet"
+      },
+      "jet_target_xy_m": [
+        42.0976116583725,
+        24.26564037228517
+      ],
+      "jet_tangent_xy": [
+        0.4746799158101323,
+        0.880158495685002
+      ],
+      "zones": {
+        "suctionA": {
+          "triangle": 148,
+          "offset_from_target_m": 0.6450629765994347,
+          "cell_xy_m": [
+            38.37861276,
+            15.545212976666667
+          ]
+        },
+        "suctionB": {
+          "triangle": 872,
+          "offset_from_target_m": 2.3981819708378,
+          "cell_xy_m": [
+            42.37861276,
+            20.16401513
+          ]
+        },
+        "jet": {
+          "triangle": 819,
+          "offset_from_target_m": 1.7914484177340877,
+          "cell_xy_m": [
+            40.51163318,
+            23.432597936666667
+          ]
+        }
+      }
+    },
+    {
+      "station": 7,
+      "chainage_m": 161.75561681151845,
+      "bank": "Exterior",
+      "zone_names": {
+        "suctionA": "p07sA",
+        "suctionB": "p07sB",
+        "jet": "p07jet"
+      },
+      "jet_target_xy_m": [
+        61.85336619332806,
+        31.939449913161344
+      ],
+      "jet_tangent_xy": [
+        0.7371481589024376,
+        0.6757311535120655
+      ],
+      "zones": {
+        "suctionA": {
+          "triangle": 636,
+          "offset_from_target_m": 2.1812977193144825,
+          "cell_xy_m": [
+            59.992878753333336,
+            26.406621426666664
+          ]
+        },
+        "suctionB": {
+          "triangle": 712,
+          "offset_from_target_m": 1.8735312775035695,
+          "cell_xy_m": [
+            61.29861996333333,
+            27.61941308666667
+          ]
+        },
+        "jet": {
+          "triangle": 856,
+          "offset_from_target_m": 1.7415154056319042,
+          "cell_xy_m": [
+            60.37861276,
+            32.86572105
+          ]
+        }
+      }
+    },
+    {
+      "station": 8,
+      "chainage_m": 185.25039696209143,
+      "bank": "Exterior",
+      "zone_names": {
+        "suctionA": "p08sA",
+        "suctionB": "p08sB",
+        "jet": "p08jet"
+      },
+      "jet_target_xy_m": [
+        79.91360559873561,
+        41.14667583916912
+      ],
+      "jet_tangent_xy": [
+        0.9849388299532423,
+        0.17290315569803258
+      ],
+      "zones": {
+        "suctionA": {
+          "triangle": 816,
+          "offset_from_target_m": 1.7133471776889768,
+          "cell_xy_m": [
+            73.31963765666667,
+            39.126296020000005
+          ]
+        },
+        "suctionB": {
+          "triangle": 711,
+          "offset_from_target_m": 1.551756440291547,
+          "cell_xy_m": [
+            74.70712979666666,
+            40.77811820666667
+          ]
+        },
+        "jet": {
+          "triangle": 733,
+          "offset_from_target_m": 0.8949168869590103,
+          "cell_xy_m": [
+            79.98553846666668,
+            40.25465459666667
+          ]
+        }
+      }
+    },
+    {
+      "station": 9,
+      "chainage_m": 209.4405239236749,
+      "bank": "Interior",
+      "zone_names": {
+        "suctionA": "p09sA",
+        "suctionB": "p09sB",
+        "jet": "p09jet"
+      },
+      "jet_target_xy_m": [
+        92.42198948371933,
+        58.313446858233874
+      ],
+      "jet_tangent_xy": [
+        0.2547897937656916,
+        0.9669964637954145
+      ],
+      "zones": {
+        "suctionA": {
+          "triangle": 865,
+          "offset_from_target_m": 0.5223424549458727,
+          "cell_xy_m": [
+            90.17278669666666,
+            54.73677942
+          ]
+        },
+        "suctionB": {
+          "triangle": 623,
+          "offset_from_target_m": 1.9290137274637276,
+          "cell_xy_m": [
+            89.73332631,
+            56.53572901333333
+          ]
+        },
+        "jet": {
+          "triangle": 622,
+          "offset_from_target_m": 0.3235492841717023,
+          "cell_xy_m": [
+            92.11749385666667,
+            58.20405512
+          ]
+        }
+      }
+    },
+    {
+      "station": 10,
+      "chainage_m": 222.2355304671762,
+      "bank": "Exterior",
+      "zone_names": {
+        "suctionA": "p10sA",
+        "suctionB": "p10sB",
+        "jet": "p10jet"
+      },
+      "jet_target_xy_m": [
+        102.17469441816101,
+        71.68007082394011
+      ],
+      "jet_tangent_xy": [
+        -0.5287581126787512,
+        0.8487725598041005
+      ],
+      "zones": {
+        "suctionA": {
+          "triangle": 124,
+          "offset_from_target_m": 1.5388475069698593,
+          "cell_xy_m": [
+            106.77502256666666,
+            61.175528033333336
+          ]
+        },
+        "suctionB": {
+          "triangle": 125,
+          "offset_from_target_m": 0.4773643226803996,
+          "cell_xy_m": [
+            106.65993631666667,
+            64.39287119666666
+          ]
+        },
+        "jet": {
+          "triangle": 117,
+          "offset_from_target_m": 0.8486330826763913,
+          "cell_xy_m": [
+            102.71398024,
+            71.02482361
+          ]
+        }
+      }
+    },
+    {
+      "station": 11,
+      "chainage_m": 267.9715772884041,
+      "bank": "Exterior",
+      "zone_names": {
+        "suctionA": "p11sA",
+        "suctionB": "p11sB",
+        "jet": "p11jet"
+      },
+      "jet_target_xy_m": [
+        54.00990424471518,
+        80.51009636484598
+      ],
+      "jet_tangent_xy": [
+        -0.9966740510782229,
+        -0.08149132412302583
+      ],
+      "zones": {
+        "suctionA": {
+          "triangle": 413,
+          "offset_from_target_m": 1.0784859064128447,
+          "cell_xy_m": [
+            64.46013905,
+            78.62502161333333
+          ]
+        },
+        "suctionB": {
+          "triangle": 719,
+          "offset_from_target_m": 0.38124381705527005,
+          "cell_xy_m": [
+            60.151021023333335,
+            79.42864244666667
+          ]
+        },
+        "jet": {
+          "triangle": 864,
+          "offset_from_target_m": 1.3461563493661415,
+          "cell_xy_m": [
+            55.20760051333334,
+            81.12463730333333
+          ]
+        }
+      }
+    },
+    {
+      "station": 12,
+      "chainage_m": 292.4099989839742,
+      "bank": "Exterior",
+      "zone_names": {
+        "suctionA": "p12sA",
+        "suctionB": "p12sB",
+        "jet": "p12jet"
+      },
+      "jet_target_xy_m": [
+        30.40768723269297,
+        73.18370296401451
+      ],
+      "jet_tangent_xy": [
+        -0.9508532677223296,
+        -0.3096418306071834
+      ],
+      "zones": {
+        "suctionA": {
+          "triangle": 880,
+          "offset_from_target_m": 2.7713813574483073,
+          "cell_xy_m": [
+            36.4374215,
+            74.02659585666667
+          ]
+        },
+        "suctionB": {
+          "triangle": 881,
+          "offset_from_target_m": 1.349738341404778,
+          "cell_xy_m": [
+            35.04784707333334,
+            74.71239279000001
+          ]
+        },
+        "jet": {
+          "triangle": 832,
+          "offset_from_target_m": 1.2513736944996114,
+          "cell_xy_m": [
+            30.600559099999998,
+            74.42012383333334
+          ]
+        }
+      }
+    },
+    {
+      "station": 13,
+      "chainage_m": 315.4294988927394,
+      "bank": "Interior",
+      "zone_names": {
+        "suctionA": "p13sA",
+        "suctionB": "p13sB",
+        "jet": "p13jet"
+      },
+      "jet_target_xy_m": [
+        16.27987497861272,
+        54.40230339595846
+      ],
+      "jet_tangent_xy": [
+        -0.6360459118017895,
+        -0.7716512153040584
+      ],
+      "zones": {
+        "suctionA": {
+          "triangle": 757,
+          "offset_from_target_m": 0.8425002112454427,
+          "cell_xy_m": [
+            20.37861276,
+            60.57853397
+          ]
+        },
+        "suctionB": {
+          "triangle": 755,
+          "offset_from_target_m": 0.7128800991854641,
+          "cell_xy_m": [
+            20.74762063,
+            58.554246836666664
+          ]
+        },
+        "jet": {
+          "triangle": 657,
+          "offset_from_target_m": 0.8684964215809516,
+          "cell_xy_m": [
+            16.06019238,
+            53.56205010666667
+          ]
+        }
+      }
+    },
+    {
+      "station": 14,
+      "chainage_m": 337.0749002455701,
+      "bank": "Exterior",
+      "zone_names": {
+        "suctionA": "p14sA",
+        "suctionB": "p14sB",
+        "jet": "p14jet"
+      },
+      "jet_target_xy_m": [
+        -7.6406885863415415,
+        56.40778076084757
+      ],
+      "jet_tangent_xy": [
+        -0.9866328473989077,
+        0.16295896548985622
+      ],
+      "zones": {
+        "suctionA": {
+          "triangle": 655,
+          "offset_from_target_m": 0.5811696394734432,
+          "cell_xy_m": [
+            0.3250680633333333,
+            57.46178966333334
+          ]
+        },
+        "suctionB": {
+          "triangle": 496,
+          "offset_from_target_m": 0.33185777678871686,
+          "cell_xy_m": [
+            -1.8400515633333334,
+            56.51377810666667
+          ]
+        },
+        "jet": {
+          "triangle": 319,
+          "offset_from_target_m": 1.2866214626277024,
+          "cell_xy_m": [
+            -8.52010113,
+            57.34694441333334
+          ]
+        }
+      }
+    },
+    {
+      "station": 15,
+      "chainage_m": 358.4059376172118,
+      "bank": "Exterior",
+      "zone_names": {
+        "suctionA": "p15sA",
+        "suctionB": "p15sB",
+        "jet": "p15jet"
+      },
+      "jet_target_xy_m": [
+        -29.61621543665177,
+        55.493264764891315
+      ],
+      "jet_tangent_xy": [
+        -0.9821616112278868,
+        -0.18803874449230185
+      ],
+      "zones": {
+        "suctionA": {
+          "triangle": 510,
+          "offset_from_target_m": 0.6046351095821608,
+          "cell_xy_m": [
+            -21.126741263333333,
+            57.59115502
+          ]
+        },
+        "suctionB": {
+          "triangle": 53,
+          "offset_from_target_m": 0.6989909766368578,
+          "cell_xy_m": [
+            -23.677305630000003,
+            57.356857203333334
+          ]
+        },
+        "jet": {
+          "triangle": 661,
+          "offset_from_target_m": 0.5092164042984557,
+          "cell_xy_m": [
+            -29.35381417666667,
+            55.05686251333333
+          ]
+        }
+      }
+    },
+    {
+      "station": 16,
+      "chainage_m": 379.9976997352117,
+      "bank": "Exterior",
+      "zone_names": {
+        "suctionA": "p16sA",
+        "suctionB": "p16sB",
+        "jet": "p16jet"
+      },
+      "jet_target_xy_m": [
+        -50.30586467718099,
+        43.92644331465961
+      ],
+      "jet_tangent_xy": [
+        -0.6755891981163858,
+        -0.7372782618445078
+      ],
+      "zones": {
+        "suctionA": {
+          "triangle": 608,
+          "offset_from_target_m": 0.4814016829649556,
+          "cell_xy_m": [
+            -42.00296953666666,
+            49.98374320666667
+          ]
+        },
+        "suctionB": {
+          "triangle": 254,
+          "offset_from_target_m": 0.25764307581009266,
+          "cell_xy_m": [
+            -45.147634873333324,
+            48.09949067
+          ]
+        },
+        "jet": {
+          "triangle": 559,
+          "offset_from_target_m": 0.8842674052537026,
+          "cell_xy_m": [
+            -51.18156959,
+            44.04920222333334
+          ]
+        }
+      }
+    },
+    {
+      "station": 17,
+      "chainage_m": 401.72017629812694,
+      "bank": "Exterior",
+      "zone_names": {
+        "suctionA": "p17sA",
+        "suctionB": "p17sB",
+        "jet": "p17jet"
+      },
+      "jet_target_xy_m": [
+        -58.47605954964964,
+        22.104824660496767
+      ],
+      "jet_tangent_xy": [
+        -0.2245038834779217,
+        -0.9744731942456559
+      ],
+      "zones": {
+        "suctionA": {
+          "triangle": 221,
+          "offset_from_target_m": 1.0108682908674873,
+          "cell_xy_m": [
+            -56.5734674,
+            32.196327483333334
+          ]
+        },
+        "suctionB": {
+          "triangle": 383,
+          "offset_from_target_m": 0.4135969023892081,
+          "cell_xy_m": [
+            -57.65627813999999,
+            28.546643966666664
+          ]
+        },
+        "jet": {
+          "triangle": 380,
+          "offset_from_target_m": 0.9846701076759276,
+          "cell_xy_m": [
+            -58.42732712333333,
+            21.121361203333336
+          ]
+        }
+      }
+    },
+    {
+      "station": 18,
+      "chainage_m": 423.41220870925366,
+      "bank": "Exterior",
+      "zone_names": {
+        "suctionA": "p18sA",
+        "suctionB": "p18sB",
+        "jet": "p18jet"
+      },
+      "jet_target_xy_m": [
+        -65.54684543147174,
+        1.0880573113259988
+      ],
+      "jet_tangent_xy": [
+        -0.1224052032438606,
+        -0.9924802094847177
+      ],
+      "zones": {
+        "suctionA": {
+          "triangle": 216,
+          "offset_from_target_m": 0.7108878211455946,
+          "cell_xy_m": [
+            -62.71420979333334,
+            11.153723529999999
+          ]
+        },
+        "suctionB": {
+          "triangle": 92,
+          "offset_from_target_m": 1.0199394335210872,
+          "cell_xy_m": [
+            -64.57606483666667,
+            7.464673206666667
+          ]
+        },
+        "jet": {
+          "triangle": 212,
+          "offset_from_target_m": 0.47318856614447125,
+          "cell_xy_m": [
+            -65.91466299333334,
+            1.3857444966666665
+          ]
+        }
+      }
+    },
+    {
+      "station": 19,
+      "chainage_m": 444.9575998108868,
+      "bank": "Exterior",
+      "zone_names": {
+        "suctionA": "p19sA",
+        "suctionB": "p19sB",
+        "jet": "p19jet"
+      },
+      "jet_target_xy_m": [
+        -63.078030460629535,
+        -21.61233738673605
+      ],
+      "jet_tangent_xy": [
+        0.18132487586421356,
+        -0.9834232503824727
+      ],
+      "zones": {
+        "suctionA": {
+          "triangle": 332,
+          "offset_from_target_m": 0.695039341519386,
+          "cell_xy_m": [
+            -65.31477538666667,
+            -11.578176226666665
+          ]
+        },
+        "suctionB": {
+          "triangle": 175,
+          "offset_from_target_m": 1.2169227829875393,
+          "cell_xy_m": [
+            -65.15159448333333,
+            -14.57968711
+          ]
+        },
+        "jet": {
+          "triangle": 67,
+          "offset_from_target_m": 0.33686945011121083,
+          "cell_xy_m": [
+            -63.234114536666674,
+            -21.910865086666664
+          ]
+        }
+      }
+    },
+    {
+      "station": 20,
+      "chainage_m": 488.1298934751509,
+      "bank": "Exterior",
+      "zone_names": {
+        "suctionA": "p20sA",
+        "suctionB": "p20sB",
+        "jet": "p20jet"
+      },
+      "jet_target_xy_m": [
+        -59.71872056462113,
+        -64.2833837341094
+      ],
+      "jet_tangent_xy": [
+        0.15324398107360124,
+        -0.9881883839960443
+      ],
+      "zones": {
+        "suctionA": {
+          "triangle": 171,
+          "offset_from_target_m": 2.4277091290715522,
+          "cell_xy_m": [
+            -59.66642736,
+            -52.52925021666667
+          ]
+        },
+        "suctionB": {
+          "triangle": 174,
+          "offset_from_target_m": 0.799279966451933,
+          "cell_xy_m": [
+            -59.66767719,
+            -57.451289476666666
+          ]
+        },
+        "jet": {
+          "triangle": 207,
+          "offset_from_target_m": 1.0122878729533231,
+          "cell_xy_m": [
+            -60.29998697,
+            -65.11215155666666
+          ]
+        }
+      }
+    }
+  ],
+  "reference_flow_gpm_per_pump": 2014.0,
+  "aggregate_seven_port_discharge_m3_s": 0.1270636555496,
+  "aggregate_open_area_m2": 0.026867559168000002,
+  "aggregate_exit_speed_m_s": 4.729259355309666,
+  "net_source_flow_m3_s": 0.0,
+  "max_source_offset_m": 2.7713813574483073,
+  "physical_seconds_requested": 1200,
+  "limitations": [
+    "7 ports aggregated",
+    "fixed free surface",
+    "uncalibrated pump installation and turbulence",
+    "screening mesh, not safety or purchase basis"
+  ],
+  "layout": "automatic"
+}
