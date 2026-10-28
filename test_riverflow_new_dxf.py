@@ -1,9 +1,12 @@
 """Checks that a changed DXF reaches the Riverflow calculations."""
 
 import io
+import sys
 import unittest
 from dataclasses import replace
 from math import isclose
+from types import SimpleNamespace
+from unittest.mock import patch
 
 import ezdxf
 from ezdxf.math import Matrix44
@@ -12,6 +15,7 @@ from core.beach_geometry import check_beach_ramp, compute_beach_geometry
 from core.orchestrator import LazyRiverModel
 from core.riverflow_model import compute_riverflow_plan
 from experiments.splishsplash_nya_pilot.depth2d_flow import Flow2DInputs, solve
+from core.riverflow_cfd_saved import render_saved_cfd
 
 
 def _model(content=None, *, known_length=None, unit_scale=None):
@@ -113,6 +117,26 @@ def test_drag_flow_uses_new_dxf_length_and_changes_field():
     assert abs(moved["u"] - base["u"]).max() > 1e-5
 
 
+def test_uploaded_dxf_does_not_display_archived_openfoam_by_default():
+    messages = []
+    fake_streamlit = SimpleNamespace(
+        subheader=lambda value: messages.append(value),
+        warning=lambda value: messages.append(value),
+        info=lambda value: messages.append(value),
+        toggle=lambda label, **kwargs: False,
+    )
+    with patch.dict(sys.modules, {"streamlit": fake_streamlit}):
+        render_saved_cfd(
+            SimpleNamespace(length_m=550.0), 100, True,
+            floor_n=.013, wall_n_current=.025, wall_n_calm=.025,
+            depth_m=1.2, nozzle_type="7 puertos", beach_flat_m=16.0,
+            beach_ramp_pct=6.5,
+        )
+    assert any("aún no tiene una corrida" in message for message in messages)
+    assert any("550.0 m" in message for message in messages)
+    assert not any("Vuelta hidráulica proyectada" in message for message in messages)
+
+
 class NewDXFTests(unittest.TestCase):
     def test_changed_geometry(self):
         test_dxf_with_changed_width_recalculates_length_volume_flow_and_filtration()
@@ -128,6 +152,9 @@ class NewDXFTests(unittest.TestCase):
 
     def test_dynamic_drag_flow(self):
         test_drag_flow_uses_new_dxf_length_and_changes_field()
+
+    def test_stale_cfd_hidden(self):
+        test_uploaded_dxf_does_not_display_archived_openfoam_by_default()
 
 
 if __name__ == "__main__":

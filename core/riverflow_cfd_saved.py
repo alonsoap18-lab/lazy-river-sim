@@ -378,10 +378,24 @@ def render_saved_cfd(plan, speed_pct: int, uploaded_dxf: bool, *,
                      beach_flat_m: float | None, beach_ramp_pct: float) -> None:
     import streamlit as st
     if uploaded_dxf:
-        st.warning("Vista histórica: las corridas OpenFOAM de abajo pertenecen al "
-                   "DXF NYA original de 536 m. Su 2D/3D se conserva para comparación "
-                   "visual, pero NO representa el DXF cargado. Para obtener OpenFOAM "
-                   "del nuevo contorno se requiere mallar y ejecutar otra corrida.")
+        st.subheader("OpenFOAM · el DXF cargado aún no tiene una corrida")
+        st.warning(
+            "La simulación OpenFOAM guardada se calculó con el DXF NYA original de "
+            "536 m. No se puede actualizar cambiando solo el contorno del gráfico: "
+            "para este plano hay que crear otra malla, ubicar las tomas y descargas, "
+            "ejecutar el solver y comprobar el resultado. Por eso no se muestran "
+            "velocidades ni tiempos OpenFOAM del diseño anterior como resultado actual."
+        )
+        st.info(
+            f"DXF activo: {plan.length_m:.1f} m de recorrido. El plano 2D/3D "
+            "de arriba y «Estudio de flujo · mover bombas» usan esta geometría; "
+            "este último es un ensayo exploratorio, no una corrida OpenFOAM."
+        )
+        if not st.toggle("Ver como referencia la corrida OpenFOAM del DXF NYA original",
+                         value=False, key="rf_show_archived_cfd"):
+            return
+        st.warning("ARCHIVO DEL DISEÑO ORIGINAL · los mapas, indicadores y bombas "
+                   "que siguen no corresponden al DXF cargado ni cambian con sus controles.")
     from core.riverflow_cfd_decision import (attention_rows,
         compare_editable_to_saved, section_comparison_figure, section_profile)
 
@@ -391,7 +405,10 @@ def render_saved_cfd(plan, speed_pct: int, uploaded_dxf: bool, *,
     except (OSError, KeyError, ValueError) as exc:
         st.error(f"No se pudo cargar el paquete CFD guardado: {exc}")
         return
-    st.subheader("Ensayo OpenFOAM · recorrido completo 2D/3D")
+    if not uploaded_dxf:
+        st.subheader("Ensayo OpenFOAM · recorrido completo 2D/3D")
+    else:
+        st.subheader("Archivo OpenFOAM · DXF NYA original de 536 m")
     st.caption(
         "Cuatro corridas NYA de 1200 s: DXF de 536 m, malla de 4056 celdas, "
         "Manning equivalente piso 0,013 / paredes 0,025, caudal de referencia "
@@ -400,9 +417,6 @@ def render_saved_cfd(plan, speed_pct: int, uploaded_dxf: bool, *,
     if not source_dxf_matches():
         st.warning("El DXF base cambió desde estas corridas. Los mapas siguen mostrando "
                    "la geometría CFD archivada y no representan el plano actual.")
-    if uploaded_dxf:
-        st.warning("Hay un DXF cargado en esta sesión. Este ensayo conserva el DXF NYA "
-                   "usado al generarlo; no se recalcula con el archivo cargado.")
     initial_scenario = plan.active_modules if plan.active_modules in COUNTS else 20
     scenario = st.selectbox("Corrida CFD guardada · bombas activas", COUNTS,
                             index=COUNTS.index(initial_scenario),
