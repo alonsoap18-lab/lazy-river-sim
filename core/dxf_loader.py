@@ -59,7 +59,27 @@ class DXFLoader:
             self._process_entity(entity)
 
         if not found_paredes:
-            self.warnings.append("Layer 'PAREDES' not found in DXF")
+            # Some CAD exports place the two closed banks on another layer as
+            # SPLINE curves (and include a HATCH of the same area). Accept only
+            # an unambiguous pair of nested closed contours; never interpret
+            # the hatch or unrelated annotation as a river bank.
+            contours = [entity for entity in msp
+                        if entity.dxftype() in ("SPLINE", "LWPOLYLINE", "POLYLINE")
+                        and (getattr(entity, "closed", False)
+                             or getattr(entity, "is_closed", False))]
+            if len(contours) == 2 and contours[0].dxf.layer == contours[1].dxf.layer:
+                for entity in contours:
+                    self._process_entity(entity)
+                if (len(self.polylines) == 2 and
+                        (self.polylines[0].contains(self.polylines[1]) or
+                         self.polylines[1].contains(self.polylines[0]))):
+                    self.warnings.append(
+                        f"Capa PAREDES ausente: se usaron dos contornos cerrados "
+                        f"de {contours[0].dxf.layer}. Confirme que son las orillas del río.")
+                else:
+                    self.polylines.clear()
+            if not self.polylines:
+                self.warnings.append("Layer 'PAREDES' not found in DXF")
 
         if len(self.polylines) >= 2:
             self._build_walls()
@@ -91,6 +111,20 @@ class DXFLoader:
                     poly = Polygon(points)
                     if poly.is_valid and poly.area > 0:
                         self.polylines.append(poly)
+
+        elif etype == 'SPLINE':
+            if not entity.closed:
+                self.warnings.append("Open SPLINE ignored (not closed)")
+                return
+            # Adaptive CAD-curve sampling. The geometric deviation is in DXF
+            # coordinate units, before the user-specified physical scale.
+            points = [(point.x, point.y) for point in entity.flattening(0.08)]
+            if len(points) >= 3:
+                poly = Polygon(points)
+                if poly.is_valid and poly.area > 0:
+                    self.polylines.append(poly)
+                else:
+                    self.warnings.append("Invalid SPLINE contour ignored")
 
     def _build_walls(self):
         self.polylines.sort(key=lambda p: p.area, reverse=True)

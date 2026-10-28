@@ -434,7 +434,9 @@ def main():
     st.caption("Fase 1 · recorrido antihorario · geometría DXF y dimensionamiento conceptual de propulsión, filtración e infraestructura")
 
     st.sidebar.header("Diseño NYA desde DXF")
-    uploaded = st.sidebar.file_uploader("Plano DXF (capa PAREDES)", type=["dxf"])
+    uploaded = st.sidebar.file_uploader("Plano DXF (dos orillas cerradas)", type=["dxf"],
+        help="Preferiblemente dos polilíneas en PAREDES. También admite dos contornos "
+             "cerrados y anidados en una misma capa, incluso SPLINE; confirme la escala.")
     uploaded_bytes = uploaded.getvalue() if uploaded else None
     uploaded_id = hashlib.sha256(uploaded_bytes).hexdigest()[:12] if uploaded_bytes else "nya"
     meters_per_dxf_unit = None

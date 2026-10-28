@@ -71,6 +71,27 @@ def test_length_and_unit_scale_cannot_both_be_applied():
         raise AssertionError("Se aceptaron dos escalas incompatibles")
 
 
+def test_nested_spline_banks_on_another_layer_are_accepted():
+    drawing = ezdxf.new()
+    drawing.layers.new("A-NOTAS")
+    space = drawing.modelspace()
+    for radius in (20.0, 12.0):
+        spline = space.add_spline(
+            [(radius, 0), (0, radius), (-radius, 0),
+             (0, -radius), (radius, 0)],
+            dxfattribs={"layer": "A-NOTAS"})
+        spline.closed = True
+    space.add_hatch(dxfattribs={"layer": "A-NOTAS"})
+    content = io.StringIO()
+    drawing.write(content)
+    model = LazyRiverModel()
+    issues = model.load_dxf(content=content.getvalue().encode("utf-8"))
+    assert len(model.loader.polylines) == 2
+    assert not model.loader.validate()
+    assert any("A-NOTAS" in issue for issue in issues)
+    assert model.loader.domain_polygon.area > 0
+
+
 class NewDXFTests(unittest.TestCase):
     def test_changed_geometry(self):
         test_dxf_with_changed_width_recalculates_length_volume_flow_and_filtration()
@@ -80,6 +101,9 @@ class NewDXFTests(unittest.TestCase):
 
     def test_scale_validation(self):
         test_length_and_unit_scale_cannot_both_be_applied()
+
+    def test_spline_banks(self):
+        test_nested_spline_banks_on_another_layer_are_accepted()
 
 
 if __name__ == "__main__":
