@@ -377,6 +377,13 @@ def render_saved_cfd(plan, speed_pct: int, uploaded_dxf: bool, *,
                      depth_m: float, nozzle_type: str,
                      beach_flat_m: float | None, beach_ramp_pct: float) -> None:
     import streamlit as st
+    if uploaded_dxf:
+        st.info("Las corridas OpenFOAM publicadas pertenecen al DXF NYA original "
+                "escalado a 536 m. El plano activo recalcula los modelos analíticos "
+                "y el mapa 2D de la app; "
+                "para ver un campo OpenFOAM de su geometría hace falta generar y "
+                "comprobar una nueva malla y corrida.")
+        return
     from core.riverflow_cfd_decision import (attention_rows,
         compare_editable_to_saved, section_comparison_figure, section_profile)
 

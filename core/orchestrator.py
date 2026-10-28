@@ -70,7 +70,8 @@ class LazyRiverModel:
         return issues
 
     def build_centerline(self, resolution_m: float = 0.5,
-                          target_length_m: float = None) -> float:
+                          target_length_m: float = None,
+                          meters_per_dxf_unit: float = None) -> float:
         """Build centerline from DXF geometry.
 
         Width always comes from the DXF (isotropic scaling).
@@ -93,8 +94,14 @@ class LazyRiverModel:
 
         # Scale factor: isotropic (same for length and width)
         # Width always comes from DXF geometry, never from a user-typed number
+        if target_length_m is not None and meters_per_dxf_unit is not None:
+            raise ValueError("Elija longitud conocida o escala de unidades DXF, no ambas.")
         length_scale = 1.0
-        if target_length_m and raw_length > 0:
+        if meters_per_dxf_unit is not None:
+            if not np.isfinite(meters_per_dxf_unit) or meters_per_dxf_unit <= 0:
+                raise ValueError("La escala de unidades DXF debe ser positiva y finita.")
+            length_scale = meters_per_dxf_unit
+        elif target_length_m and raw_length > 0:
             length_scale = target_length_m / raw_length
 
         # Apply scale to stations (isotropic — preserves DXF width ratios)

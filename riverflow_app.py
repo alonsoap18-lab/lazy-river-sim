@@ -14,7 +14,7 @@ from plotly.colors import sample_colorscale
 import streamlit as st
 
 from core.orchestrator import LazyRiverModel
-from core.beach_geometry import compute_beach_geometry
+from core.beach_geometry import check_beach_ramp, compute_beach_geometry
 from core.centerline import signed_centerline_area
 from core.filtration import calculate_backwash, calculate_pipe_losses, evaluate_filtration
 from core.filtration_catalog import screen_pump_families
@@ -22,7 +22,7 @@ from core.geometry_audit import audit_geometry
 from core.riverflow_2d import compute_field_2d
 from core.riverflow_3d_pilot import assess_speed_band
 from core.riverflow_cfd_preview import compute_cfd_preview
-from core.riverflow_cfd_saved import render_saved_cfd
+from core.riverflow_cfd_saved import render_saved_cfd, source_dxf_matches
 from core.riverflow_decision import (consistency_checks, evaluate_count_options,
                                      evaluate_decision_cases)
 from core.riverflow_momentum_pilot import compute_momentum_pilot
@@ -53,7 +53,7 @@ from core.riverflow_placement import (cumulative_manning_resistance,
 from core.sph_public_sheet import render_sph_sheet
 
 
-MODEL_VERSION = "riverflow-geometry-treatment-12-banks-flat-beach"
+MODEL_VERSION = "riverflow-geometry-treatment-13-upload-scale-beach-audit"
 ASSET_DIR = os.path.join(os.path.dirname(__file__), "assets")
 RIVERFLOW_4FT_PLAN_URL = (
     "https://riverflowpumps.com/wp-content/uploads/2023/06/"
@@ -75,7 +75,7 @@ RFS_200_MAX_CERTIFIED_M3_H = 2440 * US_GPM_TO_M3_H
 
 
 @st.cache_resource(show_spinner="Leyendo recorrido DXF...")
-def load_geometry(dxf_bytes, target_length_m, version):
+def load_geometry(dxf_bytes, target_length_m, meters_per_dxf_unit, version):
     model = LazyRiverModel()
     if dxf_bytes is None:
         path = os.path.join(os.path.dirname(__file__), "RECORRIDO.dxf")
@@ -87,7 +87,8 @@ def load_geometry(dxf_bytes, target_length_m, version):
     geometry_issues = model.loader.validate()
     if geometry_issues:
         raise ValueError("; ".join(geometry_issues))
-    model.build_centerline(resolution_m=0.5, target_length_m=target_length_m)
+    model.build_centerline(resolution_m=0.5, target_length_m=target_length_m,
+                           meters_per_dxf_unit=meters_per_dxf_unit)
     if len(model.stations) < 2:
         raise ValueError("El DXF no produjo un recorrido válido en la capa PAREDES.")
     return model, issues
@@ -434,10 +435,34 @@ def main():
 
     st.sidebar.header("Diseño NYA desde DXF")
     uploaded = st.sidebar.file_uploader("Plano DXF (capa PAREDES)", type=["dxf"])
-    target_length_m = st.sidebar.number_input(
-        "Longitud de referencia para escalar DXF (m)", min_value=100.0,
-        max_value=2000.0, value=536.0, step=1.0,
-        help="Escala longitud y anchos con el mismo factor. Ningún ancho fijo reemplaza el DXF.")
+    uploaded_bytes = uploaded.getvalue() if uploaded else None
+    uploaded_id = hashlib.sha256(uploaded_bytes).hexdigest()[:12] if uploaded_bytes else "nya"
+    meters_per_dxf_unit = None
+    if uploaded_bytes is not None:
+        scale_mode = st.sidebar.radio(
+            "Escala del nuevo DXF",
+            ["Coordenadas del DXF en unidades conocidas", "Escalar a longitud conocida"],
+            key=f"rf_scale_mode_{uploaded_id}",
+            help="El DXF NYA original declara milímetros, pero sus coordenadas se han "
+                 "escalado a 536 m. Por eso se debe confirmar la escala de cada plano nuevo.")
+        if scale_mode == "Coordenadas del DXF en unidades conocidas":
+            units = st.sidebar.selectbox(
+                "Unidad de las coordenadas del nuevo DXF",
+                ["Metros", "Centímetros", "Milímetros", "Pies"],
+                key=f"rf_dxf_units_{uploaded_id}")
+            meters_per_dxf_unit = {"Metros": 1.0, "Centímetros": .01,
+                                   "Milímetros": .001, "Pies": .3048}[units]
+            target_length_m = None
+        else:
+            target_length_m = st.sidebar.number_input(
+                "Longitud real del nuevo recorrido (m)", 100.0, 2000.0, 536.0, 1.0,
+                key=f"rf_dxf_target_length_{uploaded_id}",
+                help="Escala el largo y todos los anchos por el mismo factor.")
+    else:
+        target_length_m = st.sidebar.number_input(
+            "Longitud de referencia para escalar DXF (m)", min_value=100.0,
+            max_value=2000.0, value=536.0, step=1.0,
+            help="Escala longitud y anchos con el mismo factor. Ningún ancho fijo reemplaza el DXF.")
     depth_m = st.sidebar.number_input("Profundidad de agua (m)", 0.4, 3.0, 1.2, 0.05)
     calm_width_m = st.sidebar.number_input(
         "Umbral para localizar la playa principal (m)", 4.0, 40.0, 15.0, 0.5,
@@ -464,8 +489,14 @@ def main():
         help="Se usa en las secciones anchas identificadas desde el DXF.")
 
     try:
-        model, issues = load_geometry(uploaded.getvalue() if uploaded else None,
-                                      target_length_m, MODEL_VERSION)
+        # Include the original file's bytes in the cache key too. A replacement
+        # RECORRIDO.dxf must not reuse geometry cached from the previous file.
+        source_bytes = uploaded_bytes
+        if source_bytes is None:
+            with open(os.path.join(os.path.dirname(__file__), "RECORRIDO.dxf"), "rb") as source:
+                source_bytes = source.read()
+        model, issues = load_geometry(source_bytes, target_length_m,
+                                      meters_per_dxf_unit, MODEL_VERSION)
     except (ValueError, OSError) as exc:
         st.error(f"No se pudo procesar el DXF: {exc}")
         st.stop()
@@ -474,6 +505,19 @@ def main():
     if signed_centerline_area(model.stations) <= 0:
         st.error("No se pudo confirmar el sentido antihorario del recorrido.")
         st.stop()
+    geometry_id = hashlib.sha256(
+        f"{uploaded_id}:{model.geometry.scale_m_per_unit:.12g}".encode("ascii")
+    ).hexdigest()[:12]
+    if uploaded_bytes is not None:
+        st.sidebar.caption(
+            f"Plano {uploaded.name}: {model.geometry.channel_length_m:.1f} m de recorrido; "
+            f"anchos {model.geometry.channel_width_min_m:.1f}–"
+            f"{model.geometry.channel_width_max_m:.1f} m. "
+            "Confirme que las unidades o la longitud elegida corresponden al plano.")
+        if not 100 <= model.geometry.channel_length_m <= 2000:
+            st.error("La longitud calculada del nuevo DXF está fuera del rango de este "
+                     "ensayo (100–2000 m). Revise las unidades o use una longitud conocida.")
+            st.stop()
 
     st.sidebar.subheader("Perfil de la playa principal · anteproyecto")
     use_beach_profile = st.sidebar.checkbox(
@@ -492,8 +536,12 @@ def main():
             flat_ramp_slope=beach_ramp_pct / 100)
             if use_beach_profile else None)
     except ValueError as exc:
-        st.error(f"No se pudo calcular el perfil de playa: {exc}")
-        st.stop()
+        if uploaded_bytes is None:
+            st.error(f"No se pudo calcular el perfil de playa: {exc}")
+            st.stop()
+        beach_geometry = None
+        st.warning(f"El nuevo DXF no permite aplicar este perfil de playa ({exc}). "
+                   "Se calcula el recorrido con profundidad uniforme hasta definir la playa.")
 
     st.sidebar.header("Unidades Riverflow")
     target_lap_min = st.sidebar.number_input("Objetivo de tiempo por vuelta (min)",
@@ -664,9 +712,12 @@ def main():
                    for i in range(active_modules)]
         old_key = f"riverflow_positions_{active_modules}"
         previous_ccw_key = f"riverflow_positions_ccw_{active_modules}"
-        position_key = f"riverflow_positions_beach_{active_modules}"
+        position_key = (f"riverflow_positions_beach_{active_modules}"
+                        if uploaded_bytes is None else
+                        f"riverflow_positions_beach_{active_modules}_{geometry_id}")
         origin = float(model.stations[0]["dxf_origin_chainage_m"])
-        if position_key not in st.session_state and previous_ccw_key in st.session_state:
+        if (uploaded_bytes is None and position_key not in st.session_state
+                and previous_ccw_key in st.session_state):
             try:
                 previous_positions = parse_chainages(st.session_state[previous_ccw_key],
                                                      model.geometry.channel_length_m)
@@ -675,7 +726,8 @@ def main():
                     f"{(p - origin) % length:.1f}" for p in previous_positions)
             except (ValueError, TypeError):
                 pass
-        if (old_key in st.session_state and position_key not in st.session_state):
+        if (uploaded_bytes is None and old_key in st.session_state
+                and position_key not in st.session_state):
             try:
                 old_positions = parse_chainages(st.session_state[old_key],
                                                  model.geometry.channel_length_m)
@@ -717,7 +769,9 @@ def main():
             st.caption("E = exterior del circuito DXF; I = interior. El exterior de una curva "
                        "puede ser E o I según el sentido del giro. Esto cambia el mapa lateral "
                        "exploratorio, no valida la velocidad real del chorro.")
-            bank_key = f"riverflow_banks_{active_modules}"
+            bank_key = (f"riverflow_banks_{active_modules}"
+                        if uploaded_bytes is None else
+                        f"riverflow_banks_{active_modules}_{geometry_id}")
             bank_default = ({"value": ", ".join(["E"] * active_modules)}
                             if bank_key not in st.session_state else {})
             bank_text = st.text_area(
@@ -788,6 +842,16 @@ def main():
         if calm_positions:
             st.warning("Unidades manuales en zonas calmas: " + ", ".join(map(str, calm_positions)) +
                        ". Compruebe que no alteren las entradas a playa.")
+    if uploaded_bytes is not None:
+        st.info(f"**Nuevo DXF recalculado:** {plan.length_m:.1f} m; anchos "
+                f"{model.geometry.channel_width_min_m:.1f}–"
+                f"{model.geometry.channel_width_max_m:.1f} m. Volumen, caudal objetivo, "
+                "secciones, fricción, distribución propuesta de bombas, mapa 2D "
+                "exploratorio y filtración usan este archivo. Las corridas OpenFOAM y SPH "
+                "guardadas de NYA no representan este nuevo diseño.")
+    saved_geometry_matches = (uploaded_bytes is None and
+                              abs(plan.length_m - 536.0) < .01 and
+                              source_dxf_matches())
 
     if placement_mode == "Automática":
         exterior_count = plan.module_banks.count("Exterior")
@@ -811,6 +875,12 @@ def main():
               help=f"{hydraulic_source if use_local_circuit else 'TDH manual'}: "
                    f"{local_head_ft:.1f} ft ({local_head_ft * 0.3048:.2f} m) "
                    "de TDH local equivalente a plena velocidad.")
+    st.caption("**Calculado con el DXF activo:** largo, anchos, volumen, Q objetivo = "
+               "volumen/tiempo, resistencia de Manning y necesidad de filtración. "
+               "**Escenario, no medición:** caudal local CF104 según curva/circuito elegido; "
+               "vuelta y velocidades del mapa 2D dependen además de la transferencia "
+               "de energía supuesta. El número de bombas activas es una entrada editable, "
+               "no una cantidad demostrada para compra.")
     st.caption(f"Factor de orientación longitudinal propuesto: {plan.placement_effectiveness:.0%} "
                "del escenario de referencia. Ya no se penaliza una bomba solo por estar en un "
                "ensanchamiento: esa penalización carecía de calibración. No es eficiencia certificada.")
@@ -849,18 +919,24 @@ def main():
     tab_equipment = equipment_content
 
     with tab_flow:
-        st.info("Dos ensayos diferentes: mover una bomba recalcula el campo 2D exploratorio; "
-                "la hoja SPH muestra una corrida precomputada y no cambia al arrastrar.")
-        edit_flow, sph_result = st.tabs(["Mover bombas · campo 2D", "SPH · corrida guardada"])
-        with edit_flow:
-            from experiments.splishsplash_nya_pilot.depth2d_pilot import render_lab
-            render_lab(embedded=True)
-        with sph_result:
-            render_sph_sheet(
-                length_m=target_length_m, depth_m=depth_m,
-                pump_count=active_modules, speed_fraction=speed_pct / 100,
-                uploaded_dxf=uploaded is not None, nozzle_type=nozzle_type,
-                chainages_m=plan.module_chainages_m, banks=plan.module_banks)
+        if not saved_geometry_matches:
+            st.info("El estudio de arrastre de bombas y la corrida SPH son ensayos "
+                    "guardados para el DXF NYA. El plano y recorrido 2D/3D de arriba "
+                    "usan el nuevo DXF; este estudio requiere una nueva malla y corrida "
+                    "antes de mostrar velocidades como si fueran del diseño cargado.")
+        else:
+            st.info("Dos ensayos diferentes: mover una bomba recalcula el campo 2D exploratorio; "
+                    "la hoja SPH muestra una corrida precomputada y no cambia al arrastrar.")
+            edit_flow, sph_result = st.tabs(["Mover bombas · campo 2D", "SPH · corrida guardada"])
+            with edit_flow:
+                from experiments.splishsplash_nya_pilot.depth2d_pilot import render_lab
+                render_lab(embedded=True)
+            with sph_result:
+                render_sph_sheet(
+                    length_m=plan.length_m, depth_m=depth_m,
+                    pump_count=active_modules, speed_fraction=speed_pct / 100,
+                    uploaded_dxf=False, nozzle_type=nozzle_type,
+                    chainages_m=plan.module_chainages_m, banks=plan.module_banks)
 
     with tab_map:
         st.info(f"Circulación antihoraria. La progresiva 0/{model.geometry.channel_length_m:.0f} m "
@@ -877,6 +953,19 @@ def main():
             b2.metric("Tramo plano a profundidad de canal", f"{first_m:.1f} m · 0 %")
             b3.metric("Rampa dibujada en DXF", f"{ramp_m:.1f} m · {beach_geometry.ramp_slope:.1%}")
             b4.metric("Profundidad al borde DXF", f"{beach_geometry.beach_end_depth_at_widest_m:.2f} m")
+            ramp_check = check_beach_ramp(depth_m, ramp_m, beach_geometry.ramp_slope)
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Rampa necesaria al 6,5 %" if abs(beach_geometry.ramp_slope-.065)<1e-8
+                      else "Rampa necesaria a la pendiente elegida",
+                      f"{ramp_check.required_ramp_m:.1f} m")
+            c2.metric("Longitud adicional para salir seca",
+                      f"{ramp_check.additional_ramp_m:.1f} m")
+            c3.metric("Pendiente para caber · solo comparación",
+                      (f"{ramp_check.slope_to_fit:.1%}"
+                       if ramp_check.slope_to_fit is not None else "No calculable"))
+            st.caption("La rampa comienza después del tramo plano. La pendiente elegida "
+                       "no se modifica automáticamente; si el borde queda sumergido, "
+                       "la salida seca requiere más espacio o revisar cotas del proyecto.")
             section_depths = [depth_m,
                               max(0.0, depth_m - beach_geometry.first_slope * first_m),
                               beach_geometry.beach_end_depth_at_widest_m]
@@ -918,7 +1007,8 @@ def main():
             if not beach_geometry.profile_fits_slope_limit:
                 st.warning("Este perfil NO alcanza arena seca dentro del contorno DXF. "
                            f"Quedan {beach_geometry.beach_end_depth_at_widest_m:.2f} m de agua "
-                           "en la sección más ancha. Hace falta definir más ancho de playa o "
+                           f"en la sección más ancha; faltan {ramp_check.additional_ramp_m:.1f} m "
+                           "de rampa a la pendiente elegida. Hace falta definir más ancho de playa o "
                            "revisar pendiente/cotas; el modelo no inventa una salida seca.")
             uniform_volume = sum(
                 (float(b["chainage_m"]) - float(a["chainage_m"])) *
@@ -1063,7 +1153,7 @@ def main():
                                  section_checks), width="stretch", key="rf_main_2d_map")
         st.divider()
         render_saved_cfd(
-            plan, speed_pct, uploaded is not None,
+            plan, speed_pct, not saved_geometry_matches,
             floor_n=floor_n, wall_n_current=wall_n_current,
             wall_n_calm=wall_n_calm, depth_m=depth_m, nozzle_type=nozzle_type,
             beach_flat_m=(beach_geometry.beach_max_extra_width_m *
@@ -1076,7 +1166,7 @@ def main():
             c_b.metric("Área del contorno DXF", f"{model.geometry.domain_area_m2:,.0f} m²")
             c_c.metric("Diferencia de áreas", f"{area_difference:+.1%}" if area_difference is not None else "Dato requerido")
             st.caption(f"Se auditaron {len(section_checks)} secciones cada ~{audit_spacing_m:.0f} m. "
-                       f"El plano se escala isotrópicamente a {target_length_m:.0f} m "
+                       f"El plano se escala isotrópicamente a {plan.length_m:.0f} m "
                        f"(factor {model.geometry.scale_m_per_unit:.4f}); confirmar unidades del DXF.")
             if flagged_checks:
                 st.warning(f"{len(flagged_checks)} secciones requieren revisión. La auditoría "

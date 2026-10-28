@@ -14,6 +14,31 @@ from typing import Sequence
 
 
 @dataclass(frozen=True)
+class BeachRampCheck:
+    available_ramp_m: float
+    required_ramp_m: float
+    additional_ramp_m: float
+    edge_depth_m: float
+    slope_to_fit: float | None
+
+
+def check_beach_ramp(depth_m: float, available_ramp_m: float,
+                     slope: float) -> BeachRampCheck:
+    """Check the drawn ramp without silently changing its chosen slope."""
+    if (not all(isfinite(v) for v in (depth_m, available_ramp_m, slope))
+            or depth_m <= 0 or available_ramp_m < 0 or slope <= 0):
+        raise ValueError("Profundidad, rampa y pendiente deben ser válidas.")
+    required = depth_m / slope
+    return BeachRampCheck(
+        available_ramp_m=available_ramp_m,
+        required_ramp_m=required,
+        additional_ramp_m=max(0.0, required - available_ramp_m),
+        edge_depth_m=max(0.0, depth_m - slope * available_ramp_m),
+        slope_to_fit=(depth_m / available_ramp_m if available_ramp_m > 0 else None),
+    )
+
+
+@dataclass(frozen=True)
 class BeachGeometry:
     area_m2: tuple[float, ...]
     wetted_perimeter_m: tuple[float, ...]
