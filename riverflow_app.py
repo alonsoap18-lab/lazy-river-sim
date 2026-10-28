@@ -921,24 +921,37 @@ def main():
     tab_equipment = equipment_content
 
     with tab_flow:
-        if not saved_geometry_matches:
-            st.info("El estudio de arrastre de bombas y la corrida SPH son ensayos "
-                    "guardados para el DXF NYA. El plano y recorrido 2D/3D de arriba "
-                    "usan el nuevo DXF; este estudio requiere una nueva malla y corrida "
-                    "antes de mostrar velocidades como si fueran del diseño cargado.")
-        else:
-            st.info("Dos ensayos diferentes: mover una bomba recalcula el campo 2D exploratorio; "
-                    "la hoja SPH muestra una corrida precomputada y no cambia al arrastrar.")
-            edit_flow, sph_result = st.tabs(["Mover bombas · campo 2D", "SPH · corrida guardada"])
-            with edit_flow:
-                from experiments.splishsplash_nya_pilot.depth2d_pilot import render_lab
-                render_lab(embedded=True)
-            with sph_result:
-                render_sph_sheet(
-                    length_m=plan.length_m, depth_m=depth_m,
-                    pump_count=active_modules, speed_fraction=speed_pct / 100,
-                    uploaded_dxf=False, nozzle_type=nozzle_type,
-                    chainages_m=plan.module_chainages_m, banks=plan.module_banks)
+        st.info("Mover una bomba recalcula el campo 2D exploratorio con el DXF activo. "
+                "SPH es una corrida guardada del diseño anterior y no cambia al arrastrar.")
+        edit_flow, sph_result = st.tabs(["Mover bombas · DXF activo", "SPH · archivo NYA"])
+        with edit_flow:
+            from experiments.splishsplash_nya_pilot.depth2d_pilot import render_lab
+            render_lab(
+                embedded=True,
+                active_model=model if not saved_geometry_matches else None,
+                active_beach=(beach_geometry.beach_indices if beach_geometry else ()),
+                geometry_id=(f"{geometry_id}:{depth_m:.3f}:{calm_width_m:.2f}:"
+                             f"{beach_first_share}:{beach_ramp_pct:.2f}:"
+                             f"{active_modules}:{plan.module_flow_full_speed_m3_h * plan.speed_fraction:.2f}:"
+                             f"{floor_n:.3f}:{wall_n_current:.3f}"
+                             if not saved_geometry_matches else "nya"),
+                depth_m=depth_m,
+                beach_flat_width_m=(beach_geometry.channel_reference_width_m +
+                                    beach_geometry.beach_max_extra_width_m *
+                                    beach_first_share / 100 if beach_geometry else 16.0),
+                beach_ramp_slope=beach_ramp_pct / 100,
+                initial_count=active_modules,
+                initial_floor_n=floor_n,
+                initial_wall_n=wall_n_current,
+                pump_flow_each_m3_h=(plan.module_flow_full_speed_m3_h *
+                                     plan.speed_fraction if not saved_geometry_matches
+                                     else None))
+        with sph_result:
+            render_sph_sheet(
+                length_m=plan.length_m, depth_m=depth_m,
+                pump_count=active_modules, speed_fraction=speed_pct / 100,
+                uploaded_dxf=not saved_geometry_matches, nozzle_type=nozzle_type,
+                chainages_m=plan.module_chainages_m, banks=plan.module_banks)
 
     with tab_map:
         st.info(f"Circulación antihoraria. La progresiva 0/{model.geometry.channel_length_m:.0f} m "

@@ -2,6 +2,7 @@
 
 import io
 import unittest
+from dataclasses import replace
 from math import isclose
 
 import ezdxf
@@ -10,6 +11,7 @@ from ezdxf.math import Matrix44
 from core.beach_geometry import check_beach_ramp, compute_beach_geometry
 from core.orchestrator import LazyRiverModel
 from core.riverflow_model import compute_riverflow_plan
+from experiments.splishsplash_nya_pilot.depth2d_flow import Flow2DInputs, solve
 
 
 def _model(content=None, *, known_length=None, unit_scale=None):
@@ -92,6 +94,25 @@ def test_nested_spline_banks_on_another_layer_are_accepted():
     assert model.loader.domain_polygon.area > 0
 
 
+def test_drag_flow_uses_new_dxf_length_and_changes_field():
+    model = _model(unit_scale=1.08)
+    beach = compute_beach_geometry(model.stations, 1.2, 15,
+                                   first_share=.62, flat_ramp_slope=.065)
+    settings = Flow2DInputs(count=4, steps=25,
+                            length_m=model.geometry.channel_length_m,
+                            beach_flat_width_m=beach.channel_reference_width_m +
+                            beach.beach_max_extra_width_m * .62)
+    base = solve(settings, model=model, beach=beach.beach_indices)
+    first = base["pump_sites"][0]
+    alternate_bank = "Interior" if first["bank"] == "Exterior" else "Exterior"
+    moved = solve(replace(settings, site_overrides=((
+        0, first["chainage_m"], alternate_bank),)),
+        model=model, beach=beach.beach_indices)
+    assert model.geometry.channel_length_m > 536
+    assert abs(moved["diagnostics"]["net_pump_source_m3_s"]) < 1e-8
+    assert abs(moved["u"] - base["u"]).max() > 1e-5
+
+
 class NewDXFTests(unittest.TestCase):
     def test_changed_geometry(self):
         test_dxf_with_changed_width_recalculates_length_volume_flow_and_filtration()
@@ -104,6 +125,9 @@ class NewDXFTests(unittest.TestCase):
 
     def test_spline_banks(self):
         test_nested_spline_banks_on_another_layer_are_accepted()
+
+    def test_dynamic_drag_flow(self):
+        test_drag_flow_uses_new_dxf_length_and_changes_field()
 
 
 if __name__ == "__main__":

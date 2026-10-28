@@ -13,12 +13,12 @@ from experiments.splishsplash_nya_pilot.depth2d_flow import Flow2DInputs
 
 SCENARIO_FILE = Path(__file__).parent / "runtime" / "saved_scenarios.json"
 SCHEMA_VERSION = 1
-ALLOWED_COUNTS = (16, 20, 24, 28)
+MIN_COUNT, MAX_COUNT = 1, 50
 
 
 def record_from_settings(settings: Flow2DInputs) -> dict:
     """Portable scenario data, without writing to shared server storage."""
-    if settings.count not in ALLOWED_COUNTS or settings.moved_pump_index is not None:
+    if not MIN_COUNT <= settings.count <= MAX_COUNT or settings.moved_pump_index is not None:
         raise ValueError("Solo se pueden guardar escenarios del modo de arrastre.")
     settings.validate()
     return {
@@ -26,6 +26,11 @@ def record_from_settings(settings: Flow2DInputs) -> dict:
         "created_at_utc": datetime.now(timezone.utc).isoformat(),
         "settings": {
             "count": settings.count,
+            "length_m": settings.length_m,
+            "depth_m": settings.depth_m,
+            "beach_flat_width_m": settings.beach_flat_width_m,
+            "beach_ramp_slope": settings.beach_ramp_slope,
+            "pump_flow_each_m3_h": settings.pump_flow_each_m3_h,
             "momentum_fraction": settings.momentum_fraction,
             "nozzle_angle_deg": settings.nozzle_angle_deg,
             "eddy_viscosity_m2_s": settings.eddy_viscosity_m2_s,
@@ -44,6 +49,12 @@ def settings_from_record(record: dict) -> Flow2DInputs:
         raise ValueError("El escenario no contiene parámetros válidos.")
     try:
         count = int(data["count"])
+        length_m = float(data.get("length_m", 536.0))
+        depth_m = float(data.get("depth_m", 1.2))
+        beach_flat_width_m = float(data.get("beach_flat_width_m", 16.0))
+        beach_ramp_slope = float(data.get("beach_ramp_slope", .065))
+        pump_flow_each = data.get("pump_flow_each_m3_h")
+        pump_flow_each = None if pump_flow_each is None else float(pump_flow_each)
         momentum = float(data["momentum_fraction"])
         angle = float(data["nozzle_angle_deg"])
         mixing = float(data["eddy_viscosity_m2_s"])
@@ -52,9 +63,13 @@ def settings_from_record(record: dict) -> Flow2DInputs:
         moves = tuple((int(i), float(s), str(bank)) for i, s, bank in data["site_overrides"])
     except (KeyError, TypeError, ValueError) as exc:
         raise ValueError("Faltan datos de bombas o parámetros en el escenario.") from exc
-    if count not in ALLOWED_COUNTS or not .05 <= momentum <= 1 or not -30 <= angle <= 30 or not .02 <= mixing <= .30:
+    if not MIN_COUNT <= count <= MAX_COUNT or not .05 <= momentum <= 1 or not -30 <= angle <= 30 or not .02 <= mixing <= .30:
         raise ValueError("Los parámetros guardados están fuera del rango de esta prueba.")
-    settings = Flow2DInputs(count=count, momentum_fraction=momentum,
+    settings = Flow2DInputs(count=count, length_m=length_m, depth_m=depth_m,
+                            beach_flat_width_m=beach_flat_width_m,
+                            beach_ramp_slope=beach_ramp_slope,
+                            pump_flow_each_m3_h=pump_flow_each,
+                            momentum_fraction=momentum,
                             nozzle_angle_deg=angle, eddy_viscosity_m2_s=mixing,
                             floor_manning_n=floor_n, wall_manning_n=wall_n,
                             site_overrides=moves)

@@ -66,7 +66,7 @@ def drag_candidates(model, beach: tuple[int, ...]) -> list[list]:
 
 
 def validate_drag_move(index: int, chainage: float, bank: str, sites: list[dict],
-                       candidates: list[list]) -> str | None:
+                       candidates: list[list], length_m: float = 536.0) -> str | None:
     if not 0 <= index < len(sites) or bank not in ("Interior", "Exterior"):
         return "Bomba u orilla inválida."
     if not any(abs(s - chainage) < 1.0 and side == bank for s, side, *_ in candidates):
@@ -75,7 +75,7 @@ def validate_drag_move(index: int, chainage: float, bank: str, sites: list[dict]
         if other == index or pump["bank"] != bank:
             continue
         distance = abs(chainage - float(pump["chainage_m"]))
-        if min(distance, 536 - distance) < 12:
+        if min(distance, length_m - distance) < 12:
             return f"Muy cerca de la bomba {other + 1} en la misma orilla (mínimo exploratorio: 12 m)."
     return None
 
@@ -149,7 +149,7 @@ HTML = r"""
    const chain=target[0],bank=target[1];
    for(let i=0;i<current.pumps.length;i++){if(i===index||current.pumps[i].bank!==bank)continue;
      const d=Math.abs(chain-current.pumps[i].chainage_m);
-     if(Math.min(d,536-d)<12)return `A menos de 12 m de la bomba ${i+1} en la misma orilla.`}
+     if(Math.min(d,data.lengthM-d)<12)return `A menos de 12 m de la bomba ${i+1} en la misma orilla.`}
    return null}
  function maximum(){let v=0;for(let j=0;j<ny;j++)for(let i=0;i<nx;i++)if(current.wet[j][i])v=Math.max(v,Math.hypot(current.u[j][i],current.v[j][i]));return v}
  function mix(a,b,t){return Math.round(a+(b-a)*t)}
@@ -328,15 +328,46 @@ def metrics(result: dict) -> dict:
             "slow_fraction": float(np.mean(speed < .05))}
 
 
-def render_lab(*, embedded: bool = False) -> None:
+def render_lab(*, embedded: bool = False, active_model=None,
+               active_beach: tuple[int, ...] | None = None,
+               geometry_id: str = "nya", depth_m: float = 1.2,
+               beach_flat_width_m: float = 16.0,
+               beach_ramp_slope: float = .065,
+               initial_count: int = 20,
+               initial_floor_n: float = .013,
+               initial_wall_n: float = .025,
+               pump_flow_each_m3_h: float | None = None) -> None:
+    using_uploaded_geometry = active_model is not None
+    if st.session_state.get("depth2d_active_geometry_id") != geometry_id:
+        for key in list(st.session_state):
+            if (key.startswith("depth2d_") and key not in
+                    ("depth2d_session_scenarios_by_geometry", "depth2d_session_scenarios")):
+                del st.session_state[key]
+        for key in ("drag_view", "drag_error", "last_drag_id"):
+            st.session_state.pop(key, None)
+        st.session_state["depth2d_active_geometry_id"] = geometry_id
     if not embedded:
         st.set_page_config(page_title="NYA · flujo 2D local", layout="wide")
         st.title("NYA · ensayo 2D de chorros y tomas")
     else:
         st.subheader("Mover bombas y observar la corriente · ensayo 2D")
-        st.caption("Hoja independiente: usa el DXF de referencia y sus propios controles. "
-                   "No modifica la ubicación ni los resultados del escenario principal.")
-    st.caption("Campo 2D exploratorio sobre el DXF de 536 m. Arrastra una bomba, observa el cambio y compara los indicadores; las velocidades no están calibradas para compra ni seguridad.")
+        st.caption(("Hoja independiente: usa el DXF cargado en el menú. "
+                    if using_uploaded_geometry else
+                    "Hoja independiente: usa el DXF de referencia. ") +
+                   "Sus controles no modifican el escenario principal.")
+    model, beach = ((active_model, active_beach or ()) if using_uploaded_geometry
+                    else geometry())
+    length_m = float(model.geometry.channel_length_m)
+    def run_field(settings: Flow2DInputs):
+        return solve(settings, model=model, beach=beach) if using_uploaded_geometry else field(settings)
+    st.caption(f"Campo 2D exploratorio sobre el DXF activo de {length_m:.1f} m. "
+               "Arrastra una bomba y compara indicadores; las velocidades no están calibradas "
+               "para compra ni seguridad.")
+    if using_uploaded_geometry:
+        st.caption("El caudal local por CF104 procede del punto de operación seleccionado "
+                   "en el menú principal (promedio si las unidades tienen circuitos distintos); "
+                   "el impulso transferido y la mezcla lateral "
+                   "siguen siendo hipótesis de esta hoja.")
     with st.expander("Cómo se calcula y cómo leer el dibujo", expanded=not embedded):
         st.markdown("""1. **Caudal de cada bomba:** proviene de la curva Riverflow usada en el ensayo anterior. La toma retira ese mismo caudal y la descarga lo devuelve; así no se crea agua artificialmente.
 2. **Impulso:** se aplica en la dirección elegida usando `fracción supuesta × caudal × velocidad teórica de salida`. Esa fracción NO es un dato del fabricante: es la incertidumbre principal.
@@ -364,9 +395,11 @@ El borde oscuro sigue el **contorno DXF original**. ◆ es descarga y × es toma
                            "aún no converge y NO calibra este mapa ni selecciona bombas.")
             else:
                 st.caption("No se encontraron los diagnósticos SPH locales; el mapa 2D no está validado.")
-    model, beach = geometry()
     if embedded:
-        scenarios = st.session_state.setdefault("depth2d_session_scenarios", {})
+        scenarios = (st.session_state.setdefault("depth2d_session_scenarios", {})
+                     if geometry_id == "nya" else
+                     st.session_state.setdefault(
+                         "depth2d_session_scenarios_by_geometry", {}).setdefault(geometry_id, {}))
     else:
         try:
             scenarios = read_scenarios()
@@ -385,6 +418,8 @@ El borde oscuro sigue el **contorno DXF original**. ◆ es descarga y × es toma
             if imported is not None and st.button("Abrir archivo de escenario"):
                 try:
                     record = json.loads(imported.getvalue().decode("utf-8"))
+                    if record.get("geometry_id", "nya") != geometry_id:
+                        raise ValueError("Este escenario pertenece a otro DXF o perfil de playa.")
                     settings_from_record(record)
                     name = Path(imported.name).stem[:60]
                     if not name or name in scenarios:
@@ -406,12 +441,15 @@ El borde oscuro sigue el **contorno DXF original**. ◆ es descarga y × es toma
             if st.button("Abrir escenario guardado"):
                 try:
                     loaded = settings_from_record(scenarios[selected_scenario])
-                    baseline = field(replace(loaded, site_overrides=()))
-                    modified = field(loaded)
+                    if scenarios[selected_scenario].get("geometry_id", "nya") != geometry_id:
+                        raise ValueError("El escenario no corresponde al DXF activo.")
+                    baseline = run_field(replace(loaded, site_overrides=()))
+                    modified = run_field(loaded)
                     candidates = drag_candidates(model, beach)
                     for index, chainage, side in loaded.site_overrides:
                         issue = validate_drag_move(index, chainage, side,
-                                                   modified["pump_sites"], candidates)
+                                                   modified["pump_sites"], candidates,
+                                                   length_m)
                         if issue:
                             raise ValueError(f"Bomba {index + 1}: {issue}")
                 except ValueError as exc:
@@ -439,9 +477,13 @@ El borde oscuro sigue el **contorno DXF original**. ◆ es descarga y × es toma
         st.success(f"Escenario «{saved_notice}» guardado en este equipo.")
     with st.form("scenario"):
         a, b, c, g = st.columns(4)
-        count = a.selectbox("Bombas activas", [16, 20, 24, 28],
-                            index=None if "depth2d_count" in st.session_state else 1,
-                            key="depth2d_count")
+        if using_uploaded_geometry:
+            count = a.number_input("Bombas activas", 1, 50, min(initial_count, 50), 1,
+                                   key="depth2d_count")
+        else:
+            count = a.selectbox("Bombas activas", [16, 20, 24, 28],
+                                index=None if "depth2d_count" in st.session_state else 1,
+                                key="depth2d_count")
         coupling = b.slider("Momento efectivo supuesto (%)", 5, 100,
                             value=None if "depth2d_coupling" in st.session_state else 10,
                             key="depth2d_coupling")
@@ -455,11 +497,11 @@ El borde oscuro sigue el **contorno DXF original**. ◆ es descarga y × es toma
         mn_floor, mn_wall = st.columns(2)
         floor_n = mn_floor.number_input("Manning n · piso liso (hipótesis)",
                                         min_value=0.005, max_value=0.100,
-                                        value=None if "depth2d_floor_n" in st.session_state else 0.013,
+                                        value=None if "depth2d_floor_n" in st.session_state else initial_floor_n,
                                         step=0.001, format="%.3f", key="depth2d_floor_n")
         wall_n = mn_wall.number_input("Manning n · paredes rugosas (hipótesis)",
                                       min_value=0.005, max_value=0.100,
-                                      value=None if "depth2d_wall_n" in st.session_state else 0.025,
+                                      value=None if "depth2d_wall_n" in st.session_state else initial_wall_n,
                                       step=0.001, format="%.3f", key="depth2d_wall_n")
         if embedded:
             comparison = "Arrastrar bombas en el mapa"
@@ -474,14 +516,20 @@ El borde oscuro sigue el **contorno DXF original**. ◆ es descarga y × es toma
                                       key="depth2d_comparison")
             d, e, f = st.columns(3)
             chosen = d.number_input("Índice de bomba a mover · solo modo manual", 1, count, 1)
-            chain = e.number_input("Nueva progresiva (m) · solo modo manual", 0.0, 535.9, 52.0, 1.0)
+            chain = e.number_input("Nueva progresiva (m) · solo modo manual", 0.0,
+                                   round(length_m - .1, 1), min(52.0, length_m / 2), 1.0)
             bank = f.selectbox("Nueva orilla · solo modo manual", ["Interior", "Exterior"], index=1)
         submitted = st.form_submit_button("Calcular ubicación inicial y variante")
     if not submitted and "depth2d_results" not in st.session_state:
         st.info("Pulsa **Calcular** para iniciar el ensayo local. Tarda algunos segundos.")
         return
     if submitted:
-        base_settings = Flow2DInputs(count=count, momentum_fraction=coupling / 100,
+        base_settings = Flow2DInputs(count=count, length_m=length_m,
+                                     depth_m=depth_m,
+                                     beach_flat_width_m=beach_flat_width_m,
+                                     beach_ramp_slope=beach_ramp_slope,
+                                     pump_flow_each_m3_h=pump_flow_each_m3_h,
+                                     momentum_fraction=coupling / 100,
                                      nozzle_angle_deg=angle,
                                      eddy_viscosity_m2_s=mixing,
                                      floor_manning_n=floor_n, wall_manning_n=wall_n)
@@ -506,8 +554,8 @@ El borde oscuro sigue el **contorno DXF original**. ◆ es descarga y × es toma
             moved_settings = replace(base_settings, moved_pump_index=chosen - 1,
                                       moved_chainage_m=chain, moved_bank=bank)
         try:
-            baseline = field(base_settings)
-            modified = field(moved_settings)
+            baseline = run_field(base_settings)
+            modified = run_field(moved_settings)
         except ValueError as exc:
             st.error(str(exc)); return
         st.session_state.depth2d_results = (baseline, modified, comparison,
@@ -540,7 +588,9 @@ El borde oscuro sigue el **contorno DXF original**. ◆ es descarga y × es toma
                 if embedded:
                     if not 1 <= len(name) <= 60 or name in scenarios:
                         raise ValueError("Escribe un nombre nuevo de 1 a 60 caracteres.")
-                    scenarios[name] = record_from_settings(modified["settings"])
+                    record = record_from_settings(modified["settings"])
+                    record["geometry_id"] = geometry_id
+                    scenarios[name] = record
                 else:
                     save_scenario(name, modified["settings"])
             except (ValueError, OSError) as exc:
@@ -601,6 +651,7 @@ El borde oscuro sigue el **contorno DXF original**. ◆ es descarga y × es toma
                                 else "Bomba desplazada"),
                "changed": changed,
                "particleCount": st.session_state.get("depth2d_particle_count", 280),
+               "lengthM": length_m,
                "candidates": drag_candidates(model, beach) if comparison.startswith("Arrastrar") else [],
                "view": st.session_state.get("drag_view", {})}
     component_result = flow_component(data=payload, on_drop_change=lambda: None,
@@ -611,7 +662,8 @@ El borde oscuro sigue el **contorno DXF original**. ◆ es descarga y × es toma
         if drop.get("particleCount") in (140, 280, 420):
             st.session_state.depth2d_particle_count = drop["particleCount"]
         index, chainage, side = int(drop["index"]), float(drop["chainage"]), str(drop["bank"])
-        issue = validate_drag_move(index, chainage, side, modified["pump_sites"], payload["candidates"])
+        issue = validate_drag_move(index, chainage, side, modified["pump_sites"],
+                                   payload["candidates"], length_m)
         if issue:
             st.session_state.drag_error = issue
         else:
@@ -620,7 +672,7 @@ El borde oscuro sigue el **contorno DXF original**. ◆ es descarga y × es toma
             settings = replace(modified["settings"],
                                site_overrides=tuple((i, s, b) for i, (s, b) in sorted(overrides.items())))
             try:
-                updated = field(settings)
+                updated = run_field(settings)
             except ValueError as exc:
                 st.session_state.drag_error = str(exc)
             else:

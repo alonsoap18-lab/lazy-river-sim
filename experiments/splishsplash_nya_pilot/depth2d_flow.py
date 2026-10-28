@@ -16,6 +16,7 @@ from scipy.sparse.linalg import splu
 from scipy.spatial import cKDTree
 from shapely import affinity, contains_xy
 
+from core.riverflow_jet_momentum import NOZZLE_12X7_OPEN_AREA_M2
 from experiments.riverflow_layout_metrics import LayoutSite
 from experiments.splishsplash_nya_pilot.full_loop_2d import (
     TrialInputs, load_nya, section_geometry, solve_case,
@@ -35,12 +36,29 @@ class Flow2DInputs:
     wall_manning_n: float = 0.025
     nozzle_angle_deg: float = 0.0  # positive rotates jet toward inner bank (left)
     count: int = 20
+    length_m: float = 536.0
+    depth_m: float = 1.2
+    beach_flat_width_m: float = 16.0
+    beach_ramp_slope: float = 0.065
+    pump_flow_each_m3_h: float | None = None
     moved_pump_index: int | None = None
     moved_chainage_m: float | None = None
     moved_bank: str | None = None
     site_overrides: tuple[tuple[int, float, str], ...] = ()
+    # Local VFD sensitivity only: Q and nozzle speed scale with rotational speed
+    # for the reference H∝Q² circuit. NYA's installed system curve is unknown.
+    pump_speed_overrides: tuple[tuple[int, float], ...] = ()
 
     def validate(self) -> None:
+        if (not all(np.isfinite(v) for v in (self.length_m, self.depth_m,
+                self.beach_flat_width_m, self.beach_ramp_slope)) or
+                self.length_m <= 0 or self.depth_m <= 0 or
+                self.beach_flat_width_m <= 0 or not 0 < self.beach_ramp_slope < .2):
+            raise ValueError("Longitud, profundidad y perfil de playa inválidos.")
+        if (self.pump_flow_each_m3_h is not None and
+                (not np.isfinite(self.pump_flow_each_m3_h) or
+                 self.pump_flow_each_m3_h <= 0)):
+            raise ValueError("El caudal local por bomba debe ser positivo.")
         if not 0.75 <= self.cell_m <= 4 or not 0 < self.dt_s <= 1:
             raise ValueError("Celda o paso temporal fuera del ensayo.")
         if not 1 <= self.steps <= 10000 or not 0 < self.momentum_fraction <= 1:
@@ -54,7 +72,7 @@ class Flow2DInputs:
         if self.moved_pump_index is not None:
             if not 0 <= self.moved_pump_index < self.count:
                 raise ValueError("Índice de bomba inválido.")
-            if self.moved_chainage_m is None or not 0 <= self.moved_chainage_m < 536:
+            if self.moved_chainage_m is None or not 0 <= self.moved_chainage_m < self.length_m:
                 raise ValueError("Progresiva de bomba inválida.")
             if self.moved_bank not in ("Interior", "Exterior"):
                 raise ValueError("Orilla inválida.")
@@ -62,8 +80,14 @@ class Flow2DInputs:
         if len(indices) != len(set(indices)) or self.moved_pump_index in indices:
             raise ValueError("Una bomba no puede tener dos posiciones nuevas.")
         for index, chainage, bank in self.site_overrides:
-            if not 0 <= index < self.count or not 0 <= chainage < 536 or bank not in ("Interior", "Exterior"):
+            if not 0 <= index < self.count or not 0 <= chainage < self.length_m or bank not in ("Interior", "Exterior"):
                 raise ValueError("Ubicación de bomba inválida.")
+        speed_indices = [index for index, _ in self.pump_speed_overrides]
+        if len(speed_indices) != len(set(speed_indices)):
+            raise ValueError("Una bomba no puede tener dos ajustes de variador.")
+        for index, fraction in self.pump_speed_overrides:
+            if not 0 <= index < self.count or not np.isfinite(fraction) or not 0 < fraction <= 1:
+                raise ValueError("Ajuste de variador por bomba inválido.")
 
 
 def _stations_at(model, s_values: np.ndarray) -> dict[str, np.ndarray]:
@@ -84,7 +108,10 @@ def _stations_at(model, s_values: np.ndarray) -> dict[str, np.ndarray]:
 
 def build_geometry(model, beach_indices, cell_m: float,
                    floor_manning_n: float = .013,
-                   wall_manning_n: float = .025) -> dict:
+                   wall_manning_n: float = .025,
+                   depth_m: float = 1.2,
+                   beach_flat_width_m: float = 16.0,
+                   beach_ramp_slope: float = .065) -> dict:
     scale = float(model.geometry.scale_m_per_unit)
     polygon = affinity.scale(model.loader.domain_polygon, xfact=scale,
                              yfact=scale, origin=(0, 0))
@@ -105,9 +132,10 @@ def build_geometry(model, beach_indices, cell_m: float,
     dyp = yy[wet] - source["y"][nearest]
     lateral = dxp * source["nx"][nearest] + dyp * source["ny"][nearest]
     from_inner = lateral + source["width"][nearest] / 2
-    depth_values = np.full(len(nearest), 1.2)
-    ramp = beach_set[nearest] & (from_inner > 16)
-    depth_values[ramp] = np.maximum(.05, 1.2 - .065 * (from_inner[ramp] - 16))
+    depth_values = np.full(len(nearest), depth_m)
+    ramp = beach_set[nearest] & (from_inner > beach_flat_width_m)
+    depth_values[ramp] = np.maximum(.05, depth_m - beach_ramp_slope *
+                                    (from_inner[ramp] - beach_flat_width_m))
     depth = np.zeros_like(xx)
     depth[wet] = depth_values
     chain = np.full_like(xx, np.nan)
@@ -120,7 +148,10 @@ def build_geometry(model, beach_indices, cell_m: float,
     # resistance as the 1D reference. This is a depth-averaged wall-drag
     # approximation, not a resolved near-wall boundary layer.
     section = section_geometry(model.stations, beach_indices,
-                               TrialInputs(floor_manning_n=floor_manning_n,
+                               TrialInputs(depth_m=depth_m,
+                                           beach_flat_width_m=beach_flat_width_m,
+                                           beach_ramp_slope=beach_ramp_slope,
+                                           floor_manning_n=floor_manning_n,
                                            wall_manning_n=wall_manning_n))
     radius = np.zeros_like(xx)
     radius[wet] = (section["area"][nearest] /
@@ -176,18 +207,24 @@ def _sources(model, grid: dict, pump_sites: list[dict], q_each: float,
     fx = np.zeros_like(source)
     fy = np.zeros_like(source)
     area = settings.cell_m ** 2
-    for pump in pump_sites:
+    speeds = dict(settings.pump_speed_overrides)
+    for index, pump in enumerate(pump_sites):
+        speed_fraction = speeds.get(index, 1.0)
+        # Affinity-law sensitivity for the reference local circuit; each pump
+        # removes and returns its own flow, so a VFD change preserves mass.
+        pump_q = q_each * speed_fraction
+        pump_nozzle_speed = nozzle_speed * speed_fraction
         for kind, s, fraction in (("out", pump["chainage_m"], 1.0),
                                   ("in", pump["intake_chainage_m"] - 1.0, -.5),
                                   ("in", pump["intake_chainage_m"] + 1.0, -.5)):
-            s = s % 536
+            s = s % model.geometry.channel_length_m
             point = _stations_at(model, np.array([s]))
             sign = -1 if pump["bank"] == "Interior" else 1
             offset = max(0.5, point["width"][0] / 2 - 1.0)
             px = point["x"][0] + sign * point["nx"][0] * offset
             py = point["y"][0] + sign * point["ny"][0] * offset
             j, i, weight = _distribute(grid, px, py, settings.cell_m * 1.6)
-            source[j, i] += q_each * fraction * weight / area
+            source[j, i] += pump_q * fraction * weight / area
             if kind == "out":
                 # Station normal is right of travel. A positive angle rotates
                 # the tangent left, toward the channel's inner bank.
@@ -195,7 +232,7 @@ def _sources(model, grid: dict, pump_sites: list[dict], q_each: float,
                 angle = radians(settings.nozzle_angle_deg)
                 jx = cos(angle) * tx - sin(angle) * ty
                 jy = sin(angle) * tx + cos(angle) * ty
-                impulse = settings.momentum_fraction * q_each * nozzle_speed
+                impulse = settings.momentum_fraction * pump_q * pump_nozzle_speed
                 accel = impulse * weight / (area * grid["depth"][j, i])
                 fx[j, i] += accel * jx
                 fy[j, i] += accel * jy
@@ -217,10 +254,22 @@ def solve(settings: Flow2DInputs, *, model=None, beach=None) -> dict:
     settings.validate()
     if model is None or beach is None:
         model, beach = load_nya()
+    if abs(model.geometry.channel_length_m - settings.length_m) > .05:
+        raise ValueError("La longitud del ensayo 2D no coincide con el DXF activo.")
     reference = solve_case(model, beach,
-                           TrialInputs(floor_manning_n=settings.floor_manning_n,
+                           TrialInputs(depth_m=settings.depth_m,
+                                       beach_flat_width_m=settings.beach_flat_width_m,
+                                       beach_ramp_slope=settings.beach_ramp_slope,
+                                       floor_manning_n=settings.floor_manning_n,
                                        wall_manning_n=settings.wall_manning_n),
                            settings.count)
+    if settings.pump_flow_each_m3_h is not None:
+        # The saved 1D reference still supplies only the proposed sites. The
+        # active app's local CF104 point drives the 2D intake/jet sources.
+        reference = dict(reference)
+        reference["pump_flow_each_m3_h"] = settings.pump_flow_each_m3_h
+        reference["aggregate_nozzle_exit_speed_m_s"] = (
+            settings.pump_flow_each_m3_h / 3600 / NOZZLE_12X7_OPEN_AREA_M2)
     sites = [dict(p) for p in reference["pump_sites"]]
     moves = list(settings.site_overrides)
     if settings.moved_pump_index is not None:
@@ -229,11 +278,12 @@ def solve(settings: Flow2DInputs, *, model=None, beach=None) -> dict:
     for index, chainage, bank in moves:
         p = sites[index]
         p["chainage_m"] = chainage
-        p["intake_chainage_m"] = (chainage - 5) % 536
+        p["intake_chainage_m"] = (chainage - 5) % settings.length_m
         p["bank"] = bank
     grid = build_geometry(model, beach, settings.cell_m,
                           settings.floor_manning_n,
-                          settings.wall_manning_n)
+                          settings.wall_manning_n, settings.depth_m,
+                          settings.beach_flat_width_m, settings.beach_ramp_slope)
     wet, h = grid["wet"], grid["depth"]
     ny, nx = wet.shape
     ids, pressure_solve = _poisson_matrix(wet, h, settings.cell_m)
@@ -304,6 +354,10 @@ def solve(settings: Flow2DInputs, *, model=None, beach=None) -> dict:
             "source": src, "pump_sites": sites, "history": history,
             "reference": reference,
             "diagnostics": {"wet_cells": int(wet.sum()),
+                            "total_local_pump_flow_m3_h": float(
+                                reference["pump_flow_each_m3_h"] * sum(
+                                    dict(settings.pump_speed_overrides).get(i, 1.0)
+                                    for i in range(settings.count))),
                             "volume_m3_raster": float(np.sum(h[wet]) * d ** 2),
                             "net_pump_source_m3_s": float(src.sum() * d ** 2),
                             "mass_error_max_m3_s_per_cell":
