@@ -10,6 +10,15 @@ ROOT = Path(__file__).resolve().parents[1]
 ASSETS = ROOT / "assets" / "cfd_uploaded"
 
 
+def _browser_compatible_2d(html: str) -> str:
+    """Render saved 2D CFD traces as SVG so the viewer needs no WebGL."""
+    plot_start = html.rfind("Plotly.newPlot(")
+    if plot_start < 0:
+        return html
+    return (html[:plot_start] + html[plot_start:].replace(
+        '"type":"scattergl"', '"type":"scatter"'))
+
+
 def load_matching_run(dxf_sha256: str) -> tuple[Path, dict, dict] | None:
     if len(dxf_sha256) != 64 or any(c not in "0123456789abcdef" for c in dxf_sha256):
         return None
@@ -151,6 +160,14 @@ def render_matching_run(dxf_sha256: str, *, active_length_m: float | None = None
     filename = "flow_2d.html.gz" if view.startswith("2D") else "flow_3d.html.gz"
     with gzip.open(folder / selected / filename, "rt", encoding="utf-8") as source:
         html = source.read()
+    if view.startswith("2D"):
+        html = _browser_compatible_2d(html)
+        st.caption("Vista 2D compatible con navegadores sin WebGL. Conserva los mismos "
+                   "campos y tiempos guardados; solo cambia la forma de dibujarlos.")
+    else:
+        st.info("La vista 3D interactiva necesita WebGL. Si el navegador muestra un "
+                "recuadro gris, selecciona la vista 2D para ver los mismos campos de "
+                "velocidad y dirección sin WebGL.")
     st.components.v1.html(html, height=900, scrolling=True)
     with st.expander("Procedencia y límites del cálculo"):
         st.json({"dx_fingerprint": dxf_sha256,
