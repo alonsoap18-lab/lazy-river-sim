@@ -11,12 +11,31 @@ ASSETS = ROOT / "assets" / "cfd_uploaded"
 
 
 def _browser_compatible_2d(html: str) -> str:
-    """Render saved 2D CFD traces as SVG so the viewer needs no WebGL."""
+    """Keep the archived CFD data while making its 2D playback usable in SVG."""
     plot_start = html.rfind("Plotly.newPlot(")
     if plot_start < 0:
         return html
-    return (html[:plot_start] + html[plot_start:].replace(
-        '"type":"scattergl"', '"type":"scatter"'))
+    plot = html[plot_start:].replace('"type":"scattergl"', '"type":"scatter"')
+    # SVG traces can update in place. Full redraw on every one of the 61 saved
+    # frames was causing the blank flash seen in browsers without WebGL.
+    plot = plot.replace('"redraw":true', '"redraw":false')
+    plot = plot.replace('redraw: true', 'redraw: false')
+    plot = plot.replace('setTimeout(advance, 280)', 'setTimeout(advance, 650)')
+    plot = plot.replace('''        playing = true;
+        setTimeout(advance, 500);''', '''        // Start at the saved final field; playback is user controlled.
+        const originalSteps = gd.layout.sliders?.[0]?.steps;
+        if (originalSteps) {
+            const sparseSteps = originalSteps.map((step, index) => ({
+                ...step,
+                label: (index % 6 === 0 || index === originalSteps.length - 1)
+                    ? step.label : ''
+            }));
+            Plotly.relayout(gd, {
+                'sliders[0].steps': sparseSteps,
+                annotations: []
+            });
+        }''')
+    return html[:plot_start] + plot
 
 
 def load_matching_run(dxf_sha256: str) -> tuple[Path, dict, dict] | None:
@@ -163,12 +182,17 @@ def render_matching_run(dxf_sha256: str, *, active_length_m: float | None = None
     if view.startswith("2D"):
         html = _browser_compatible_2d(html)
         st.caption("Vista 2D compatible con navegadores sin WebGL. Conserva los mismos "
-                   "campos y tiempos guardados; solo cambia la forma de dibujarlos.")
+                   "campos y tiempos guardados. La reproducción empieza al pulsar "
+                   "Reproducir; Pausa detiene el avance. La barra permite elegir un instante.")
     else:
         st.info("La vista 3D interactiva necesita WebGL. Si el navegador muestra un "
                 "recuadro gris, selecciona la vista 2D para ver los mismos campos de "
                 "velocidad y dirección sin WebGL.")
     st.components.v1.html(html, height=900, scrolling=True)
+    if view.startswith("2D"):
+        st.caption("En el mapa: rojo = retorno, azul = avance; rombos naranjas = "
+                   "descargas; puntos blancos = trazadores visuales del campo U. "
+                   "La barra muestra tiempo físico simulado, no tiempo de vuelta.")
     with st.expander("Procedencia y límites del cálculo"):
         st.json({"dx_fingerprint": dxf_sha256,
                  "malla_celdas": manifest["mesh_cells"],

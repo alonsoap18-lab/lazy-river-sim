@@ -379,6 +379,10 @@ def render_saved_cfd(plan, speed_pct: int, uploaded_dxf: bool, *,
                      uploaded_sha256: str | None = None) -> None:
     import streamlit as st
     if uploaded_dxf:
+        st.caption("OpenFOAM no se recalcula al cargar un DXF. Cada resultado es una "
+                   "corrida guardada para una geometría concreta: primero se busca "
+                   "una que coincida exactamente con el archivo cargado; el estudio "
+                   "del DXF NYA original queda disponible solo como archivo de referencia.")
         from core.riverflow_cfd_uploaded import render_matching_run
         matched = bool(uploaded_sha256 and render_matching_run(
             uploaded_sha256, active_length_m=plan.length_m,
@@ -420,6 +424,8 @@ def render_saved_cfd(plan, speed_pct: int, uploaded_dxf: bool, *,
         return
     if not uploaded_dxf:
         st.subheader("Ensayo OpenFOAM · recorrido completo 2D/3D")
+        st.caption("Este ensayo pertenece al DXF NYA original. El ensayo del DXF "
+                   "28-10-26 se muestra únicamente cuando se carga ese archivo exacto.")
     else:
         st.subheader("Archivo OpenFOAM · DXF NYA original de 536 m")
     st.caption(
