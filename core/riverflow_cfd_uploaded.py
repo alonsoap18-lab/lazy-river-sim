@@ -230,7 +230,9 @@ def render_matching_run(dxf_sha256: str, *, active_length_m: float | None = None
         st.caption("Vista 2D compatible con navegadores sin WebGL. Conserva los mismos "
                    "campos y tiempos guardados. Reproducir recorre una vez de 0 a 1.200 s "
                    "y se detiene en el último campo, sin volver bruscamente a cero. "
-                   "Pausa detiene el avance y la barra permite elegir un instante.")
+                   "Pausa detiene el avance y la barra permite elegir un instante. "
+                   "La silueta y los ejes quedan fijos según el DXF; solo cambian "
+                   "velocidades, flechas y trazadores.")
         if detail_scale:
             st.info("La escala ampliada ±0,15 m/s deja ver corrientes débiles y retornos. "
                     "Satura los colores fuera de ese rango; no modifica las velocidades "

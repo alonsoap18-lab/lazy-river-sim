@@ -45,6 +45,9 @@ class UploadedCFDTests(unittest.TestCase):
         self.assertNotIn('setTimeout(advance, 500)', detail)
         self.assertIn('"opacity":0.55,"size":3', detail)
         self.assertIn('"redraw":false', detail)
+        self.assertIn('"traces":[2,3,7]', saved)
+        self.assertEqual(saved.count('"traces":[2,3,7]'), 61)
+        self.assertGreaterEqual(saved.count('"autorange":false'), 2)
 
     def test_cfd_bundle_is_selected_by_full_content_hash(self):
         digest = "a" * 64
