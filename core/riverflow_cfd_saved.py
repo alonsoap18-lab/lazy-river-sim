@@ -18,8 +18,12 @@ from plotly.subplots import make_subplots
 ROOT = Path(__file__).resolve().parents[1]
 ASSETS = ROOT / "assets" / "cfd_nya_1200"
 COUNTS = (16, 19, 20, 21)
-COLORS = [[0, "#632b94"], [.2, "#2452ae"], [.35, "#4bb8d2"],
-          [.5, "#3aa674"], [.65, "#f0d35d"], [.8, "#eb8736"], [1, "#b52c37"]]
+# Same signed convention and fixed range as the uploaded-DXF diagnostic:
+# red = reverse, near white = near zero, blue = forward. Values beyond the
+# display range are clipped in colour only; hover retains the actual value.
+COLORS = [[0, "#ad2632"], [.35, "#ed8c7a"], [.5, "#f4f6f8"],
+          [.65, "#83c8e3"], [1, "#215caa"]]
+DISPLAY_SPEED_LIMIT_M_S = .6
 NAMES = {16: "16 · menos impulso", 19: "19 · quitar una",
          20: "20 · referencia", 21: "21 · añadir en bahía"}
 
@@ -157,8 +161,8 @@ def figure_2d(count: int, layer: str = "velocidad") -> go.Figure:
         raise ValueError("Capa CFD desconocida")
     fig = go.Figure()
     marker = dict(size=7, color=color, colorscale=COLORS if layer == "velocidad" else "Turbo",
-                  cmin=-.2 if layer == "velocidad" else 0,
-                  cmax=.8 if layer == "velocidad" else float(np.quantile(color, .99)),
+                  cmin=-DISPLAY_SPEED_LIMIT_M_S if layer == "velocidad" else 0,
+                  cmax=DISPLAY_SPEED_LIMIT_M_S if layer == "velocidad" else float(np.quantile(color, .99)),
                   showscale=True, colorbar=dict(title=title))
     fig.add_trace(go.Scattergl(x=xy[:, 0], y=xy[:, 1], mode="markers",
         marker=marker, name="Celdas OpenFOAM",
@@ -229,8 +233,8 @@ def figure_3d(count: int, layer: str = "velocidad",
         mode="markers", name="Campo OpenFOAM",
         marker=dict(size=2.2, opacity=.42, color=color,
                     colorscale=COLORS if layer == "velocidad" else "Turbo",
-                    cmin=-.2 if layer == "velocidad" else 0,
-                    cmax=.8 if layer == "velocidad" else float(np.quantile(color, .99)),
+                    cmin=-DISPLAY_SPEED_LIMIT_M_S if layer == "velocidad" else 0,
+                    cmax=DISPLAY_SPEED_LIMIT_M_S if layer == "velocidad" else float(np.quantile(color, .99)),
                     showscale=True, colorbar=dict(title=title))))
     pumps, labels = _pump_points(manifest, count)
     fig.add_trace(go.Scatter3d(
@@ -333,7 +337,8 @@ def figure_comparison() -> go.Figure:
         fig.add_trace(go.Scattergl(
             x=xy[:, 0], y=xy[:, 1], mode="markers", showlegend=False,
             marker=dict(size=5.5, color=forward, colorscale=COLORS,
-                        cmin=-.2, cmax=.8, showscale=count == 21,
+                        cmin=-DISPLAY_SPEED_LIMIT_M_S,
+                        cmax=DISPLAY_SPEED_LIMIT_M_S, showscale=count == 21,
                         colorbar=dict(title="Avance<br>m/s")),
             customdata=forward,
             hovertemplate="V longitudinal %{customdata:.3f} m/s<extra></extra>"),
@@ -425,7 +430,10 @@ def render_saved_cfd(plan, speed_pct: int, uploaded_dxf: bool, *,
     if not uploaded_dxf:
         st.subheader("Ensayo OpenFOAM · recorrido completo 2D/3D")
         st.caption("Este ensayo pertenece al DXF NYA original. El ensayo del DXF "
-                   "28-10-26 se muestra únicamente cuando se carga ese archivo exacto.")
+                   "28-10-26 se muestra únicamente cuando se carga ese archivo exacto. "
+                   "Para comparar cantidades, selecciona 20 bombas en ambas vistas; "
+                   "aun así cambian geometría, malla y representación de descargas. "
+                   "Los colores comparten sentido y rango, no validan una comparación física.")
     else:
         st.subheader("Archivo OpenFOAM · DXF NYA original de 536 m")
     st.caption(
@@ -488,7 +496,9 @@ def render_saved_cfd(plan, speed_pct: int, uploaded_dxf: bool, *,
         else:
             st.caption("Reproduce cuadros calculados cada ~120 s de tiempo físico; "
                        "la reproducción en pantalla acelera esos cuadros y no representa "
-                       "el tiempo real de una vuelta.")
+                       "el tiempo real de una vuelta. Rojo = retorno; azul = avance; "
+                       "blanco ≈ 0 m/s. Escala común −0,6 a +0,6 m/s: los colores "
+                       "se saturan fuera de ella, pero el valor numérico se conserva.")
         mode = "k" if layer == "Turbulencia k" else "velocidad"
         if view == "2D animado":
             figure = figure_2d(scenario, mode)

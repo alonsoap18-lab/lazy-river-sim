@@ -46,7 +46,9 @@ def load_matching_run(dxf_sha256: str) -> tuple[Path, dict, dict] | None:
     if not manifest_path.is_file():
         return None
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    if manifest.get("source_dxf_sha256") != dxf_sha256:
+    if (manifest.get("schema") != 2 or
+            manifest.get("status") != "diagnostic_only_not_purchase_or_lap" or
+            manifest.get("source_dxf_sha256") != dxf_sha256):
         return None
     scenarios = {}
     for key in manifest.get("scenarios", {}):
@@ -61,6 +63,7 @@ def load_matching_run(dxf_sha256: str) -> tuple[Path, dict, dict] | None:
         report = json.loads(report_file.read_text(encoding="utf-8"))
         if (metadata.get("source_dxf_sha256") != dxf_sha256 or
                 report.get("source_dxf_sha256") != dxf_sha256 or
+                report.get("max_courant_observed", float("inf")) > .2 or
                 any(not (scenario_folder / name).is_file() for name in
                     ("flow_2d.html.gz", "flow_3d.html.gz"))):
             return None
@@ -87,7 +90,11 @@ def render_matching_run(dxf_sha256: str, *, active_length_m: float | None = None
     import streamlit as st
 
     folder, bundle, scenarios = match
-    st.subheader("OpenFOAM · resultado del DXF cargado")
+    st.subheader("OpenFOAM · diagnóstico del DXF cargado")
+    st.error("Las corridas anteriores del DXF cargado tenían picos numéricos y se "
+             "retiraron de esta vista. Se muestran las comprobaciones con paso "
+             "temporal más fino. Ninguna demuestra aún flujo continuo ni permite "
+             "recomendar una cantidad de bombas o un tiempo de vuelta.")
     selected = st.radio(
         "Distribución OpenFOAM sobre el DXF cargado",
         tuple(scenarios),
@@ -100,7 +107,9 @@ def render_matching_run(dxf_sha256: str, *, active_length_m: float | None = None
     st.caption(f"Archivo identificado por SHA-256 {dxf_sha256[:12]}…; "
                f"{manifest['mesh_cells']:,} celdas, {manifest['active_pumps']} unidades CF104 "
                f"hipotéticas, {last['physical_time_s']:.0f} s físicos desde reposo. "
-               "Cambiar el contenido del DXF, aunque conserve el nombre, invalida esta corrida.")
+               "Cambiar el contenido del DXF, aunque conserve el nombre, invalida esta corrida. "
+               "Los dos escenarios tienen el mismo DXF, malla, caudal unitario y duración; "
+               "solo cambia la ubicación de las bombas.")
     differences = []
     for label, active, saved, tolerance in (
         ("longitud escalada", active_length_m, manifest["length_m"], .1),
@@ -150,7 +159,10 @@ def render_matching_run(dxf_sha256: str, *, active_length_m: float | None = None
     a.metric("Avance mediano de celdas · final", f"{last['median_longitudinal_cell_m_s']:.3f} m/s")
     b.metric("Celdas con retorno <−0,02 m/s", f"{last['fraction_cell_reverse_below_minus_0_02']:.1%}")
     c.metric("Courant máximo observado", f"{report['max_courant_observed']:.2f}")
-    d.metric("Duración física simulada", f"{last['physical_time_s']:.0f} s")
+    d.metric("Tramos de 10 m en retorno",
+             len(report.get("returning_10m_sections_at_end", ())))
+    st.caption(f"Tiempo físico: {last['physical_time_s']:.0f} s. Es un ensayo "
+               "transitorio de 20 minutos, no una vuelta de 20 minutos.")
     if last["fraction_cell_reverse_below_minus_0_02"] > .1:
         st.error("Este ensayo muestra mucho flujo inverso con esta distribución. "
                  "No debe interpretarse como una vuelta estable ni como ubicación final de bombas.")
@@ -161,6 +173,14 @@ def render_matching_run(dxf_sha256: str, *, active_length_m: float | None = None
     if abs(report["last_60s_median_speed_change_fraction"]) > .05:
         st.warning("La mediana de velocidad aún cambió más de 5 % durante los "
                    "últimos 60 s. El campo final no demuestra estabilidad temporal.")
+    extension = bundle.get("reference_extension_1800_s")
+    if extension is not None:
+        st.caption("Control adicional de la distribución de referencia a 1.800 s: "
+                   f"{extension['reverse_cell_fraction_below_minus_0_02']:.1%} de celdas "
+                   "en retorno y "
+                   f"{extension['negative_10m_section_medians']} tramos de 10 m con "
+                   "mediana en retorno. El mapa de abajo termina a 1.200 s; "
+                   "la extensión tampoco demuestra circulación continua.")
     if len(scenarios) > 1:
         st.dataframe([{
             "Distribución": bundle["scenarios"][key],
@@ -170,6 +190,8 @@ def render_matching_run(dxf_sha256: str, *, active_length_m: float | None = None
                 "fraction_cell_reverse_below_minus_0_02"], 1),
             "Cambio de mediana últimos 60 s (%)": round(100 * data[1][
                 "last_60s_median_speed_change_fraction"], 1),
+            "Tramos de 10 m en retorno": len(data[1].get(
+                "returning_10m_sections_at_end", ())),
         } for key, data in scenarios.items()], hide_index=True, width="stretch")
         st.caption("Los dos casos usan el mismo DXF, malla, caudal unitario y duración; "
                    "solo cambia la distribución de bombas. Los porcentajes son de "
@@ -192,8 +214,25 @@ def render_matching_run(dxf_sha256: str, *, active_length_m: float | None = None
     if view.startswith("2D"):
         st.caption("En el mapa: rojo = retorno, azul = avance; rombos naranjas = "
                    "descargas; puntos blancos = trazadores visuales del campo U. "
+                   "Escala común con el DXF original: −0,6 a +0,6 m/s; los colores "
+                   "se saturan fuera de ella, pero el valor numérico se conserva. "
                    "La barra muestra tiempo físico simulado, no tiempo de vuelta.")
     with st.expander("Procedencia y límites del cálculo"):
+        st.markdown("**Comprobaciones para decidir distribución o compra**")
+        st.dataframe([
+            {"Comprobación": "Paso temporal y Courant",
+             "Estado": "Revisado en ambas corridas de 1.200 s"},
+            {"Comprobación": "Sensibilidad de malla en todo el circuito",
+             "Estado": "Pendiente"},
+            {"Comprobación": "Dos tomas y siete puertos separados por CF104",
+             "Estado": "Pendiente en todo el circuito"},
+            {"Comprobación": "Rugosidad de piedra como pared 3D",
+             "Estado": "Pendiente; Manning es arrastre equivalente"},
+            {"Comprobación": "Superficie libre y playa",
+             "Estado": "Pendiente; superficie fija"},
+            {"Comprobación": "Punto de operación CF104 en NYA",
+             "Estado": "Pendiente; 2014 US gpm es referencia"},
+        ], hide_index=True, width="stretch")
         st.json({"dx_fingerprint": dxf_sha256,
                  "malla_celdas": manifest["mesh_cells"],
                  "volumen_malla_m3": manifest["volume_mesh_m3"],
@@ -201,5 +240,6 @@ def render_matching_run(dxf_sha256: str, *, active_length_m: float | None = None
                  "manning_pared": manifest["wall_manning_n"],
                  "arrastre_Manning_volumetrico": manifest["manning_equivalent_bulk_drag_applied"],
                  "cambio_mediana_ultimos_60s": report["last_60s_median_speed_change_fraction"],
+                 "estado_validacion": bundle["quality_gate"],
                  "limitaciones": manifest["limitations"]})
     return True

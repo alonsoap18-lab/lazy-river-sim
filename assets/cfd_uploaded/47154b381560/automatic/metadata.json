@@ -1,5 +1,5 @@
 {
-  "status": "uploaded-DXF local OpenFOAM 14 screening; not validated design",
+  "status": "completed time-step QA; diagnostic only, not validated design",
   "source_dxf_sha256": "47154b381560b10b58d2729f9e2ae79dc90ff1f24af8a7640d36a41b15f68060",
   "source_dxf_name": "lazy river 28-10-26.dxf",
   "length_m": 536.0,
@@ -912,5 +912,7 @@
     "uncalibrated pump installation and turbulence",
     "screening mesh, not safety or purchase basis"
   ],
-  "layout": "automatic"
+  "layout": "automatic",
+  "qa_source_case": "uploaded_47154b381560_20p_1200s",
+  "qa_change": "maxCo 0.5->0.2; maxDeltaT 0.2->0.05; initial deltaT 0.02->0.01"
 }

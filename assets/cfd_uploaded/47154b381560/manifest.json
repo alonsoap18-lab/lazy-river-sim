@@ -1,8 +1,33 @@
 {
-  "schema": 1,
+  "schema": 2,
   "source_dxf_sha256": "47154b381560b10b58d2729f9e2ae79dc90ff1f24af8a7640d36a41b15f68060",
+  "run_family": "qa_dt05_stability_recheck",
+  "status": "diagnostic_only_not_purchase_or_lap",
+  "display_range_m_s": [
+    -0.6,
+    0.6
+  ],
+  "reference_extension_1800_s": {
+    "physical_s": 1799.99798902,
+    "max_cell_speed_m_s": 1.00744677062416,
+    "median_longitudinal_cell_m_s": 0.05887573767968298,
+    "reverse_cell_fraction_below_minus_0_02": 0.17488789237668162,
+    "negative_10m_section_medians": 3
+  },
   "scenarios": {
-    "reference20": "20 bombas · posiciones del estudio original",
-    "automatic": "20 bombas · redistribución por ancho y curvas"
+    "reference20": "20 CF104 · posiciones de referencia · paso fino",
+    "automatic": "20 CF104 · distribución automática · paso fino"
+  },
+  "quality_gate": {
+    "mesh_check": true,
+    "solver_completed": true,
+    "courant_under_0_2": true,
+    "independent_audit_matched": true,
+    "full_loop_momentum_calibrated": false,
+    "mesh_convergence": false,
+    "seven_ports_individual": false,
+    "rough_wall_boundary_calibrated": false,
+    "free_surface_resolved": false,
+    "physical_validation": false
   }
 }
