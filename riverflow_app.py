@@ -51,6 +51,7 @@ from core.riverflow_placement import (cumulative_manning_resistance,
                                       suggest_friction_balanced_positions,
                                       suggest_width_aware_positions)
 from core.sph_public_sheet import render_sph_sheet
+from core.riverflow_local_cfd_archive import render_local_cfd_archive
 
 
 MODEL_VERSION = "riverflow-geometry-treatment-13-upload-scale-beach-audit"
@@ -953,6 +954,12 @@ def main():
                 pump_count=active_modules, speed_fraction=speed_pct / 100,
                 uploaded_dxf=not saved_geometry_matches, nozzle_type=nozzle_type,
                 chainages_m=plan.module_chainages_m, banks=plan.module_banks)
+        with st.expander("OpenFOAM 3D local · dos posiciones en el DXF nuevo", expanded=False):
+            render_local_cfd_archive(
+                active_dxf_sha256=hashlib.sha256(source_bytes).hexdigest(),
+                current_volume_m3=plan.volume_m3,
+                current_depth_m=depth_m,
+                current_flow_m3_h=plan.module_flow_full_speed_m3_h * plan.speed_fraction)
 
     with tab_map:
         st.info(f"Circulación antihoraria. La progresiva 0/{model.geometry.channel_length_m:.0f} m "

@@ -1,0 +1,96 @@
+{
+  "schema": 1,
+  "source_dxf_sha256": "47154b381560b10b58d2729f9e2ae79dc90ff1f24af8a7640d36a41b15f68060",
+  "source_dxf_name": "lazy river 28-10-26.dxf",
+  "local_chainage_m": [
+    410,
+    450
+  ],
+  "local_depth_m": 1.2,
+  "target_lap_scenario_min": 35,
+  "loop_volume_mesh_m3": 8096.6962756156245,
+  "imposed_through_flow_m3_s": 3.855569655055059,
+  "pump_flow_gpm": 2014,
+  "nozzle_exit_angle_deg_assumed": 15,
+  "pressure_gain_m2_s2": {
+    "mesh40cm": 0.025914746608130073,
+    "mesh30cm": 0.024831302496719058,
+    "relative_mesh_difference": 0.0418080148648304
+  },
+  "quality_gate": {
+    "mesh_and_solver_ok": true,
+    "pressure_gain_mesh_difference_under_10pct": true,
+    "individual_port_peak_mesh_converged": false,
+    "manning_wall_calibrated": false,
+    "full_loop_coupled": false,
+    "physical_validation": false
+  },
+  "cases": [
+    {
+      "case": "station426_40",
+      "station_m": 426,
+      "mesh_cm": 40,
+      "pump_active": true,
+      "mean_along_m_s": 0.33222088444750825,
+      "reverse_volume_fraction": 0.0,
+      "p95_speed_m_s": 0.6376431652634078,
+      "max_cell_speed_m_s": 2.614270195382692,
+      "upstream_pressure_m2_s2": -0.056235683494908345,
+      "iterations": 797,
+      "cells": 29485
+    },
+    {
+      "case": "station430_40",
+      "station_m": 430,
+      "mesh_cm": 40,
+      "pump_active": true,
+      "mean_along_m_s": 0.33115451764150133,
+      "reverse_volume_fraction": 0.0,
+      "p95_speed_m_s": 0.6320265987836727,
+      "max_cell_speed_m_s": 2.5493257679328787,
+      "upstream_pressure_m2_s2": -0.055464106999852006,
+      "iterations": 822,
+      "cells": 29500
+    },
+    {
+      "case": "off430_40",
+      "station_m": 430,
+      "mesh_cm": 40,
+      "pump_active": false,
+      "mean_along_m_s": 0.33030079478384905,
+      "reverse_volume_fraction": 0.0,
+      "p95_speed_m_s": 0.4333499142611957,
+      "max_cell_speed_m_s": 0.46621741272736,
+      "upstream_pressure_m2_s2": -0.029549360391721933,
+      "iterations": 890,
+      "cells": 29500
+    },
+    {
+      "case": "station430_30",
+      "station_m": 430,
+      "mesh_cm": 30,
+      "pump_active": true,
+      "mean_along_m_s": 0.330980452110285,
+      "reverse_volume_fraction": 0.0,
+      "p95_speed_m_s": 0.6104041620645579,
+      "max_cell_speed_m_s": 3.612096354281084,
+      "upstream_pressure_m2_s2": -0.05447467699033342,
+      "iterations": 1073,
+      "cells": 50990
+    },
+    {
+      "case": "off430_30",
+      "station_m": 430,
+      "mesh_cm": 30,
+      "pump_active": false,
+      "mean_along_m_s": 0.3302824855227175,
+      "reverse_volume_fraction": 0.0,
+      "p95_speed_m_s": 0.43237826692669223,
+      "max_cell_speed_m_s": 0.4711346436648635,
+      "upstream_pressure_m2_s2": -0.02964337449361436,
+      "iterations": 1127,
+      "cells": 50990
+    }
+  ],
+  "interpretation": "El desplazamiento 426→430 m cambia poco las medias locales. No hay base para preferir una posición definitiva ni deducir el número de bombas. La corriente de entrada se impuso; Manning de la app y la rampa de playa no se resolvieron en este tramo 3D. No usar los picos de celda junto a los puertos para seguridad: son sensibles a la malla."
+}
