@@ -29,6 +29,23 @@ class UploadedCFDTests(unittest.TestCase):
             self.assertIn('"cmin":-0.6', html)
             self.assertIn('"cmax":0.6', html)
 
+    def test_uploaded_map_reveals_slow_flow_without_changing_saved_values(self):
+        digest = "47154b381560b10b58d2729f9e2ae79dc90ff1f24af8a7640d36a41b15f68060"
+        folder, _, _ = riverflow_cfd_uploaded.load_matching_run(digest)
+        with gzip.open(folder / "reference20" / "flow_2d.html.gz", "rt",
+                       encoding="utf-8") as source:
+            saved = source.read()
+        detail = riverflow_cfd_uploaded._browser_compatible_2d(saved)
+        comparison = riverflow_cfd_uploaded._browser_compatible_2d(
+            saved, detail_scale=False)
+        self.assertIn('"cmax":0.15,"cmin":-0.15', detail)
+        self.assertIn('"cmax":0.6,"cmin":-0.6', comparison)
+        self.assertIn('if (cursor >= sequence.length)', detail)
+        self.assertNotIn('cursor = (cursor + 1) % sequence.length;', detail)
+        self.assertNotIn('setTimeout(advance, 500)', detail)
+        self.assertIn('"opacity":0.55,"size":3', detail)
+        self.assertIn('"redraw":false', detail)
+
     def test_cfd_bundle_is_selected_by_full_content_hash(self):
         digest = "a" * 64
         with tempfile.TemporaryDirectory(dir=Path(__file__).parent / "tmp") as temp:

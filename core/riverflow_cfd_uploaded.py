@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 ASSETS = ROOT / "assets" / "cfd_uploaded"
 
 
-def _browser_compatible_2d(html: str) -> str:
+def _browser_compatible_2d(html: str, *, detail_scale: bool = True) -> str:
     """Keep the archived CFD data while making its 2D playback usable in SVG."""
     plot_start = html.rfind("Plotly.newPlot(")
     if plot_start < 0:
@@ -20,7 +20,23 @@ def _browser_compatible_2d(html: str) -> str:
     # frames was causing the blank flash seen in browsers without WebGL.
     plot = plot.replace('"redraw":true', '"redraw":false')
     plot = plot.replace('redraw: true', 'redraw: false')
-    plot = plot.replace('setTimeout(advance, 280)', 'setTimeout(advance, 650)')
+    plot = plot.replace('setTimeout(advance, 280)', 'setTimeout(advance, 450)')
+    # The saved values do not change. A tighter display range makes the
+    # near-zero flow in this failed scenario visible instead of pale white.
+    if detail_scale:
+        plot = plot.replace('"cmax":0.6,"cmin":-0.6',
+                            '"cmax":0.15,"cmin":-0.15')
+    # Passive tracers must not obscure the actual cell velocities.
+    plot = plot.replace(
+        '"color":"#ffffff","line":{"color":"#172d40","width":0.5},'
+        '"opacity":0.95,"size":4',
+        '"color":"#172d40","line":{"color":"#172d40","width":0},'
+        '"opacity":0.55,"size":3')
+    # Rewinding a 20-minute transient to a zero-velocity initial field on
+    # every loop made the map appear to blink. Stop at the final solved field.
+    plot = plot.replace('cursor = (cursor + 1) % sequence.length;',
+                        'cursor += 1;\n                if (cursor >= sequence.length) '
+                        '{ stopPlayback(); return; }')
     plot = plot.replace('''        playing = true;
         setTimeout(advance, 500);''', '''        // Start at the saved final field; playback is user controlled.
         const originalSteps = gd.layout.sliders?.[0]?.steps;
@@ -198,14 +214,28 @@ def render_matching_run(dxf_sha256: str, *, active_length_m: float | None = None
                    "celdas de esta malla, no de personas ni de caudal total.")
     view = st.radio("Vista del DXF cargado", ("2D · velocidad y dirección", "3D · paredes y profundidad"),
                     horizontal=True, key=f"rf_uploaded_cfd_view_{dxf_sha256[:12]}")
+    detail_scale = True
+    if view.startswith("2D"):
+        scale_choice = st.radio(
+            "Escala de color del mapa 2D",
+            ("Detalle de corrientes lentas · ±0,15 m/s",
+             "Comparación con el DXF original · ±0,6 m/s"),
+            horizontal=True, key=f"rf_uploaded_cfd_scale_{dxf_sha256[:12]}")
+        detail_scale = scale_choice.startswith("Detalle")
     filename = "flow_2d.html.gz" if view.startswith("2D") else "flow_3d.html.gz"
     with gzip.open(folder / selected / filename, "rt", encoding="utf-8") as source:
         html = source.read()
     if view.startswith("2D"):
-        html = _browser_compatible_2d(html)
+        html = _browser_compatible_2d(html, detail_scale=detail_scale)
         st.caption("Vista 2D compatible con navegadores sin WebGL. Conserva los mismos "
-                   "campos y tiempos guardados. La reproducción empieza al pulsar "
-                   "Reproducir; Pausa detiene el avance. La barra permite elegir un instante.")
+                   "campos y tiempos guardados. Reproducir recorre una vez de 0 a 1.200 s "
+                   "y se detiene en el último campo, sin volver bruscamente a cero. "
+                   "Pausa detiene el avance y la barra permite elegir un instante.")
+        if detail_scale:
+            st.info("La escala ampliada ±0,15 m/s deja ver corrientes débiles y retornos. "
+                    "Satura los colores fuera de ese rango; no modifica las velocidades "
+                    "ni permite comparar colores directamente con el DXF original. "
+                    "Seleccione ±0,6 m/s para esa comparación.")
     else:
         st.info("La vista 3D interactiva necesita WebGL. Si el navegador muestra un "
                 "recuadro gris, selecciona la vista 2D para ver los mismos campos de "
@@ -213,9 +243,10 @@ def render_matching_run(dxf_sha256: str, *, active_length_m: float | None = None
     st.components.v1.html(html, height=900, scrolling=True)
     if view.startswith("2D"):
         st.caption("En el mapa: rojo = retorno, azul = avance; rombos naranjas = "
-                   "descargas; puntos blancos = trazadores visuales del campo U. "
-                   "Escala común con el DXF original: −0,6 a +0,6 m/s; los colores "
-                   "se saturan fuera de ella, pero el valor numérico se conserva. "
+                   "descargas; puntos oscuros = trazadores visuales del campo U. "
+                   f"Escala mostrada: {'−0,15 a +0,15' if detail_scale else '−0,6 a +0,6'} "
+                   "m/s; los colores se saturan fuera de ella, pero el valor numérico "
+                   "se conserva al pasar el cursor sobre las celdas. "
                    "La barra muestra tiempo físico simulado, no tiempo de vuelta.")
     with st.expander("Procedencia y límites del cálculo"):
         st.markdown("**Comprobaciones para decidir distribución o compra**")
