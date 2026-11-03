@@ -25,6 +25,7 @@ from core.riverflow_cfd_preview import compute_cfd_preview
 from core.riverflow_cfd_saved import render_saved_cfd, source_dxf_matches
 from core.riverflow_decision import (consistency_checks, evaluate_count_options,
                                      evaluate_decision_cases)
+from core.riverflow_decision_gate import comparison_rows, load_fixed_comparison
 from core.riverflow_momentum_pilot import compute_momentum_pilot
 from core.riverflow_momentum_bound import compute_momentum_bound
 from core.riverflow_nozzle_screen import count_sensitivity, screen_lap_band
@@ -2515,6 +2516,85 @@ def main():
 
     with tab_decision:
         st.subheader("Hoja de decisión · NYA / Riverflow")
+        st.markdown("**Qué podemos decidir con el DXF activo**")
+        shore_depth = (beach_geometry.beach_end_depth_at_widest_m
+                       if beach_geometry is not None else None)
+        decision_gates = [
+            {"Tema": "Trazado y volumen",
+             "Dato actual": f"{plan.length_m:.0f} m · {plan.volume_m3:,.0f} m³",
+             "Estado": "Calculado desde DXF y perfil supuesto",
+             "Siguiente comprobación": "Fijar cotas de fondo y confirmar perfil de playa"},
+            {"Tema": "Playa de entrada y salida",
+             "Dato actual": (f"{shore_depth:.2f} m de agua en borde DXF"
+                             if shore_depth is not None else "Sin perfil aplicado"),
+             "Estado": ("Borde sumergido" if shore_depth is not None and
+                        shore_depth > .01 else "Perfil por verificar"),
+             "Siguiente comprobación": "Definir si la arena seca queda fuera del DXF o ajustar cotas"},
+            {"Tema": "Objetivo de vuelta",
+             "Dato actual": f"{target_lap_min:.1f} min · Q equivalente {plan.target_equivalent_flow_m3_h:,.0f} m³/h",
+             "Estado": "Exigencia geométrica, no vuelta demostrada",
+             "Siguiente comprobación": "Conseguir avance continuo por tramo antes de estimar vuelta"},
+            {"Tema": "Filtración independiente",
+             "Dato actual": f"{turnover_h:.1f} h · {plan.filtration_flow_m3_h:,.0f} m³/h",
+             "Estado": "Necesidad calculada; capacidad de equipos pendiente",
+             "Siguiente comprobación": "Verificar bombas con filtros sucios, filtros y N−1"},
+        ]
+        st.dataframe(decision_gates, hide_index=True, width="stretch")
+        st.caption("Volumen y Q de filtración cambian con el DXF y los controles. "
+                   "El Q equivalente de vuelta no es la suma de caudales CF104. "
+                   "La capacidad de tratamiento no se confirma sin punto bomba–planta y filtros.")
+        fixed_comparison = load_fixed_comparison(hashlib.sha256(source_bytes).hexdigest())
+        if fixed_comparison is not None:
+            st.markdown("**Tres distribuciones CFD guardadas · mismo DXF, malla y caudal**")
+            st.dataframe(comparison_rows(fixed_comparison), hide_index=True,
+                         width="stretch")
+            st.caption("Cada ensayo usa 20 CF104, 5.352 celdas y 1.200 s físicos. "
+                       "La tercera fila cambia solo RF-06 de 164 a 138 m. "
+                       "Retorno = velocidad longitudinal menor de −0,02 m/s; "
+                       "el porcentaje corresponde a celdas de esta malla.")
+            incompatible = []
+            reference_m3_h = fixed_comparison["pump_reference_flow_gpm"] * US_GPM_TO_M3_H
+            if active_modules != fixed_comparison["active_pumps"]:
+                incompatible.append("cantidad de CF104")
+            if abs(depth_m - 1.2) > .001:
+                incompatible.append("profundidad")
+            if abs(floor_n - fixed_comparison["floor_manning_n"]) > .0001 or abs(
+                    wall_n_current - fixed_comparison["wall_manning_n"]) > .0001:
+                incompatible.append("rugosidad")
+            if abs(plan.module_flow_full_speed_m3_h * plan.speed_fraction -
+                   reference_m3_h) > .05 * reference_m3_h:
+                incompatible.append("caudal por CF104")
+            if nozzle_type != "7 puertos":
+                incompatible.append("tipo de descarga")
+            if not use_beach_profile or abs(beach_ramp_pct - 6.5) > .01:
+                incompatible.append("perfil de playa")
+            if (beach_geometry is not None and
+                    abs((beach_geometry.flat_entry_width_m or 0) - 22.220009745232062) > .1):
+                incompatible.append("longitud plana de playa")
+            if placement_mode == "Editar por recorrido (m)":
+                incompatible.append("ubicaciones editadas de bombas")
+            if any(abs(angle) > 1 for angle in plan.module_angles_deg):
+                incompatible.append("ángulos de descarga")
+            if incompatible:
+                st.warning("El menú actual difiere de las corridas guardadas en " +
+                           ", ".join(incompatible) + ". La tabla CFD no cambia al editar "
+                           "controles y no representa esa configuración.")
+            st.caption("Las posiciones y orillas de cada fila son las de esa corrida; "
+                       "seleccionar otra distribución automática en el menú tampoco "
+                       "recalcula estos campos OpenFOAM.")
+            st.error("Ninguna de las tres distribuciones pasa la comprobación de "
+                     "continuidad: quedan al menos tres tramos de 10 m con mediana "
+                     "en retorno. La variante RF-06 es la menos desfavorable de estas "
+                     "tres corridas, pero aún no permite recomendar posiciones de obra "
+                     "ni una cantidad de compra.")
+            st.markdown("**Próxima prueba que puede cambiar la decisión**: resolver "
+                        "las tomas y salidas de los tramos 80–90, 140–150 y 420–430 m; "
+                        "comprobar la dirección neta y repetir el mejor caso con malla "
+                        "más fina. Después comparar cantidades con el mismo criterio.")
+        else:
+            st.info("No hay tres corridas comparables archivadas para estos bytes del DXF. "
+                    "Los mapas 2D editables son exploratorios; no sustituyen una "
+                    "comparación CFD de ubicaciones y cantidades.")
         st.info("Para comparar equipos, primero se calcula el caudal de CADA circuito local "
                 "con la curva CF104 disponible. Después se compara el impulso bruto de las "
                 "salidas con la resistencia Manning del DXF. Esta comparación muestra lo "

@@ -1,0 +1,49 @@
+{
+  "schema": 1,
+  "source_dxf_sha256": "47154b381560b10b58d2729f9e2ae79dc90ff1f24af8a7640d36a41b15f68060",
+  "mesh_cells": 5352,
+  "physical_time_s": 1199.99798902,
+  "active_pumps": 20,
+  "pump_reference_flow_gpm": 2014,
+  "floor_manning_n": 0.013,
+  "wall_manning_n": 0.025,
+  "source": "Completed OpenFOAM 14 qa_new_*_dt05 transient_report.json files; no new CFD calculation",
+  "cases": [
+    {
+      "id": "reference20",
+      "label": "Referencia · 20 CF104",
+      "change": "Ubicaciones de referencia",
+      "median_forward_m_s": 0.05432760869521271,
+      "reverse_cell_fraction": 0.18011958146487295,
+      "slow_cell_fraction": 0.6066890881913304,
+      "fast_cell_fraction": 0.009715994020926755,
+      "returning_10m_bins": [8, 14, 42],
+      "max_courant": 0.1545351,
+      "last_60s_median_change_fraction": 0.026934615112796993
+    },
+    {
+      "id": "automatic",
+      "label": "Automática · 20 CF104",
+      "change": "Ubicación automática por geometría",
+      "median_forward_m_s": -0.006807694785612958,
+      "reverse_cell_fraction": 0.42152466367713004,
+      "slow_cell_fraction": 0.33856502242152464,
+      "fast_cell_fraction": 0.005979073243647235,
+      "returning_10m_bins": [2, 5, 7, 23, 24, 25, 28, 29, 30, 31, 34, 35, 36, 40, 43, 44, 45, 51],
+      "max_courant": 0.13358308,
+      "last_60s_median_change_fraction": 0.06204396529265778
+    },
+    {
+      "id": "move6",
+      "label": "Estación 6 adelantada · 20 CF104",
+      "change": "Solo RF-06 de 164 a 138 m; demás posiciones iguales a referencia",
+      "median_forward_m_s": 0.06111945004287764,
+      "reverse_cell_fraction": 0.17488789237668162,
+      "slow_cell_fraction": 0.5926756352765321,
+      "fast_cell_fraction": 0.009715994020926755,
+      "returning_10m_bins": [8, 14, 42],
+      "max_courant": 0.15611189,
+      "last_60s_median_change_fraction": 0.012109927065794465
+    }
+  ]
+}
