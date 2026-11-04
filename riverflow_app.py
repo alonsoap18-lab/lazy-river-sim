@@ -25,7 +25,8 @@ from core.riverflow_cfd_preview import compute_cfd_preview
 from core.riverflow_cfd_saved import render_saved_cfd, source_dxf_matches
 from core.riverflow_decision import (consistency_checks, evaluate_count_options,
                                      evaluate_decision_cases)
-from core.riverflow_decision_gate import comparison_rows, load_fixed_comparison
+from core.riverflow_decision_gate import (comparison_rows as fixed_cfd_comparison_rows,
+                                          load_fixed_comparison)
 from core.riverflow_momentum_pilot import compute_momentum_pilot
 from core.riverflow_momentum_bound import compute_momentum_bound
 from core.riverflow_nozzle_screen import count_sensitivity, screen_lap_band
@@ -1681,7 +1682,7 @@ def main():
                     "no se entregó su área abierta ni su curva de pérdidas. El K manual solo "
                     "permite comparar un circuito hipotético.")
         st.markdown("**Comparación local · misma geometría NYA y misma hipótesis de energía útil**")
-        comparison_rows = []
+        local_circuit_rows = []
         try:
             editable_point = solve_local_circuit(circuit, speed_fraction=speed_pct / 100,
                                                  curve_mode=curve_mode)
@@ -1697,7 +1698,7 @@ def main():
                 point.flow_m3_h / (speed_pct / 100), plan.active_modules,
                 plan.speed_fraction, plan.transfer_fraction,
                 plan.placement_effectiveness)
-            comparison_rows.append({
+            local_circuit_rows.append({
                 "Fuente": label,
                 "Q local por unidad (m³/h)": round(point.flow_m3_h, 1),
                 "TDH local (ft)": round(point.system_head_ft, 2),
@@ -1705,7 +1706,7 @@ def main():
                 "Vuelta media supuesta (min)": round(plan.volume_m3 * 60 / flow, 1),
                 "Q filtros (m³/h)": round(plan.filtration_flow_m3_h),
             })
-        st.dataframe(comparison_rows, width="stretch", hide_index=True)
+        st.dataframe(local_circuit_rows, width="stretch", hide_index=True)
         st.caption("Cambiar la fuente altera propulsión, velocidades y vuelta en el escenario "
                    "activo; la filtración depende del volumen y las horas de recirculación, "
                    "no de la descarga local Riverflow. Los ejemplos Sch 40/80 no son NYA.")
@@ -2546,14 +2547,19 @@ def main():
         fixed_comparison = load_fixed_comparison(hashlib.sha256(source_bytes).hexdigest())
         if fixed_comparison is not None:
             st.markdown("**Tres distribuciones CFD guardadas · mismo DXF, malla y caudal**")
-            st.dataframe(comparison_rows(fixed_comparison), hide_index=True,
+            st.dataframe(fixed_cfd_comparison_rows(fixed_comparison), hide_index=True,
                          width="stretch")
-            st.caption("Cada ensayo usa 20 CF104, 5.352 celdas y 1.200 s físicos. "
+            st.caption("Cada ensayo usa el archivo DXF escalado a 536 m, "
+                       "20 CF104, 5.352 celdas y 1.200 s físicos. "
                        "La tercera fila cambia solo RF-06 de 164 a 138 m. "
                        "Retorno = velocidad longitudinal menor de −0,02 m/s; "
                        "el porcentaje corresponde a celdas de esta malla.")
             incompatible = []
             reference_m3_h = fixed_comparison["pump_reference_flow_gpm"] * US_GPM_TO_M3_H
+            if abs(plan.length_m - fixed_comparison["length_m"]) > .1:
+                incompatible.append("escala del DXF (menú "
+                                    f"{plan.length_m:.2f} m; CFD "
+                                    f"{fixed_comparison['length_m']:.2f} m)")
             if active_modules != fixed_comparison["active_pumps"]:
                 incompatible.append("cantidad de CF104")
             if abs(depth_m - 1.2) > .001:
