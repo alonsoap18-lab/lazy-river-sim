@@ -1,5 +1,5 @@
 # Dependencias para ejecutar la aplicación en Streamlit Community Cloud.
-# Reconstrucción del despliegue: visor CFD con capas fijas del DXF.
+# Reconstrucción del despliegue: visor CFD con reproducción y capas fijas del DXF.
 streamlit==1.61.1
 pandas==3.0.5
 numpy==2.5.2
