@@ -51,7 +51,7 @@ def _browser_compatible_2d(html: str, *, detail_scale: bool = True) -> str:
         const frameByName = new Map(savedFrames.map(frame => [frame.name, frame]));
         const sequence = savedFrames.map(frame => frame.name);
         gd.dataset.nyaPlayback = 'ready:' + sequence.length;
-        let playing = false, cursor = 0, timer = null;
+        let playing = false, cursor = 0, timer = null, settingSlider = false;
         async function showFrame(index) {
             const frame = frameByName.get(sequence[index]);
             if (!frame) return;
@@ -64,7 +64,9 @@ def _browser_compatible_2d(html: str, *, detail_scale: bool = True) -> str:
             if (tracers && tracerIndex !== undefined) {
                 await Plotly.restyle(gd, {x: [tracers.x], y: [tracers.y]}, [tracerIndex]);
             }
-            await Plotly.relayout(gd, {'sliders[0].active': index});
+            settingSlider = true;
+            try { await Plotly.relayout(gd, {'sliders[0].active': index}); }
+            finally { settingSlider = false; }
             gd.dataset.nyaPlayback = 'frame:' + index;
         }
         function stopPlayback() {
@@ -96,16 +98,27 @@ def _browser_compatible_2d(html: str, *, detail_scale: bool = True) -> str:
             });
         }
         gd.on('plotly_sliderchange', event => {
+            if (settingSlider) return;
             stopPlayback();
             const selected = sequence.indexOf(event.step.args?.[0]?.[0]);
             if (selected >= 0) { cursor = selected; showFrame(selected); }
         });
-        gd.on('plotly_buttonclicked', event => {
-            if (event.button.label === 'Pausa') stopPlayback();
-            if (event.button.label.indexOf('Reproducir') >= 0) {
-                stopPlayback(); cursor = 0; playing = true; advance();
+        // The archived Plotly buttons use execute:false. Handle clicks at the
+        // DOM capture phase so playback does not depend on Plotly's optional
+        // plotly_buttonclicked event or its built-in animation path.
+        gd.addEventListener('click', event => {
+            const button = event.target.closest('g.updatemenu-button');
+            if (!button) return;
+            const label = button.textContent || '';
+            event.preventDefault();
+            event.stopPropagation();
+            if (label.includes('Pausa')) { stopPlayback(); return; }
+            if (label.includes('Reproducir')) {
+                stopPlayback(); cursor = 0; playing = true;
+                gd.dataset.nyaPlayback = 'play:0';
+                advance();
             }
-        });''' + plot[end:]
+        }, true);''' + plot[end:]
     return html[:plot_start] + plot
 
 
