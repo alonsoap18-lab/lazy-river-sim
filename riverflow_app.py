@@ -2587,6 +2587,12 @@ def main():
             if abs(plan.module_flow_full_speed_m3_h * plan.speed_fraction -
                    reference_m3_h) > .05 * reference_m3_h:
                 incompatible.append("caudal por CF104")
+            if (len(plan.module_flows_full_speed_m3_h) !=
+                    fixed_comparison["active_pumps"] or any(
+                        abs(flow * plan.speed_fraction - reference_m3_h) >
+                        .05 * reference_m3_h
+                        for flow in plan.module_flows_full_speed_m3_h)):
+                incompatible.append("caudales individuales CF104")
             if nozzle_type != "7 puertos":
                 incompatible.append("tipo de descarga")
             if (not use_beach_profile or abs(beach_ramp_pct - 6.5) > .01 or
