@@ -16,11 +16,10 @@ def _browser_compatible_2d(html: str, *, detail_scale: bool = True) -> str:
     if plot_start < 0:
         return html
     plot = html[plot_start:].replace('"type":"scattergl"', '"type":"scatter"')
-    # SVG traces can update in place. Full redraw on every one of the 61 saved
-    # frames was causing the blank flash seen in browsers without WebGL.
-    plot = plot.replace('"redraw":true', '"redraw":false')
-    plot = plot.replace('redraw: true', 'redraw: false')
-    plot = plot.replace('setTimeout(advance, 280)', 'setTimeout(advance, 450)')
+    # The archived Plotly frames contain only the three changing traces. Its
+    # animation machinery can clear the other SVG traces during a frame, which
+    # makes the banks and pump symbols disappear. Update those three traces
+    # directly and leave all geometry and pump traces untouched.
     # The saved values do not change. A tighter display range makes the
     # near-zero flow in this failed scenario visible instead of pale white.
     if detail_scale:
@@ -32,25 +31,64 @@ def _browser_compatible_2d(html: str, *, detail_scale: bool = True) -> str:
         '"opacity":0.95,"size":4',
         '"color":"#172d40","line":{"color":"#172d40","width":0},'
         '"opacity":0.55,"size":3')
-    # Rewinding a 20-minute transient to a zero-velocity initial field on
-    # every loop made the map appear to blink. Stop at the final solved field.
-    plot = plot.replace('cursor = (cursor + 1) % sequence.length;',
-                        'cursor += 1;\n                if (cursor >= sequence.length) '
-                        '{ stopPlayback(); return; }')
-    plot = plot.replace('''        playing = true;
-        setTimeout(advance, 500);''', '''        // Start at the saved final field; playback is user controlled.
+    start = plot.index("        const gd = document.getElementById(")
+    gd_line = plot[start:plot.index(";", start) + 1]
+    end = plot.index("        setTimeout(advance, 500);", start) + len(
+        "        setTimeout(advance, 500);")
+    plot = plot[:start] + gd_line + '''
+        const savedFrames = gd._transitionData._frames;
+        const frameByName = new Map(savedFrames.map(frame => [frame.name, frame]));
+        const sequence = savedFrames.map(frame => frame.name);
+        let playing = false, cursor = 0, timer = null;
+        async function showFrame(index) {
+            const frame = frameByName.get(sequence[index]);
+            if (!frame) return;
+            // These indices are supplied by the saved OpenFOAM figure. The
+            // banks and pump markers have other indices and remain untouched.
+            const [field, arrows, tracers] = frame.data;
+            const [fieldIndex, arrowIndex, tracerIndex] = frame.traces;
+            await Plotly.restyle(gd, {'marker.color': [field.marker.color]}, [fieldIndex]);
+            await Plotly.restyle(gd, {x: [arrows.x], y: [arrows.y]}, [arrowIndex]);
+            if (tracers && tracerIndex !== undefined) {
+                await Plotly.restyle(gd, {x: [tracers.x], y: [tracers.y]}, [tracerIndex]);
+            }
+            await Plotly.relayout(gd, {'sliders[0].active': index});
+        }
+        function stopPlayback() {
+            playing = false;
+            if (timer !== null) clearTimeout(timer);
+            timer = null;
+        }
+        async function advance() {
+            if (!playing) return;
+            await showFrame(cursor);
+            cursor += 1;
+            if (cursor >= sequence.length) { stopPlayback(); return; }
+            if (playing) timer = setTimeout(advance, 450);
+        }
+        // Plotly's built-in animation must not run alongside direct updates.
         const originalSteps = gd.layout.sliders?.[0]?.steps;
         if (originalSteps) {
-            const sparseSteps = originalSteps.map((step, index) => ({
-                ...step,
-                label: (index % 6 === 0 || index === originalSteps.length - 1)
-                    ? step.label : ''
-            }));
             Plotly.relayout(gd, {
-                'sliders[0].steps': sparseSteps,
+                'sliders[0].steps': originalSteps.map((step, index) => ({
+                    ...step, execute: false,
+                    label: (index % 6 === 0 || index === originalSteps.length - 1)
+                        ? step.label : ''
+                })),
                 annotations: []
             });
-        }''')
+        }
+        gd.on('plotly_sliderchange', event => {
+            stopPlayback();
+            const selected = sequence.indexOf(event.step.args?.[0]?.[0]);
+            if (selected >= 0) { cursor = selected; showFrame(selected); }
+        });
+        gd.on('plotly_buttonclicked', event => {
+            if (event.button.label === 'Pausa') stopPlayback();
+            if (event.button.label.indexOf('Reproducir') >= 0) {
+                stopPlayback(); cursor = 0; playing = true; advance();
+            }
+        });''' + plot[end:]
     return html[:plot_start] + plot
 
 
