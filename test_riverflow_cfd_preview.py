@@ -1,6 +1,7 @@
 """Numerical smoke checks for the local-only 2D preview, not physical validation."""
 
 import numpy as np
+from dataclasses import replace
 
 from core.orchestrator import LazyRiverModel
 from core.riverflow_cfd_preview import compute_cfd_preview
@@ -31,6 +32,22 @@ def test_local_preview_conserves_water_and_reacts_to_impulse():
     assert not np.isclose(plan.equivalent_channel_flow_m3_h,
                           alternate_energy.equivalent_channel_flow_m3_h)
     assert np.allclose(low.speed_m_s, independent.speed_m_s)
+
+    opposite = replace(plan, module_banks=(
+        "Interior" if plan.module_banks[0] == "Exterior" else "Exterior",
+        *plan.module_banks[1:]))
+    opposite_result = compute_cfd_preview(model, opposite,
+                                          duration_s=20, impulse_fraction=.1)
+    assert not np.allclose(low.module_x_dxf, opposite_result.module_x_dxf)
+    assert not np.allclose(low.speed_m_s, opposite_result.speed_m_s)
+
+    flows = list(plan.module_flows_full_speed_m3_h)
+    flows[0] *= .8
+    flows[1] *= 1.2
+    unequal = replace(plan, module_flows_full_speed_m3_h=tuple(flows))
+    unequal_result = compute_cfd_preview(model, unequal,
+                                         duration_s=20, impulse_fraction=.1)
+    assert not np.allclose(low.speed_m_s, unequal_result.speed_m_s)
 
 
 if __name__ == "__main__":

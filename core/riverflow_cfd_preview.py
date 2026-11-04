@@ -75,15 +75,21 @@ def compute_cfd_preview(model, plan, *, cell_m=2.5, duration_s=120.0,
     fy_cell = np.zeros((ny, nx))
     mx, my = [], []
     operating_head_m = plan.module_head_full_speed_ft * .3048 * plan.speed_fraction ** 2
-    q_module = plan.module_flow_full_speed_m3_h * plan.speed_fraction / 3600
     ideal_speed = sqrt(2 * 9.81 * operating_head_m)
     source_radius = max(5.0, 2 * cell_m)
     station_s = np.array([p["chainage_m"] for p in stations])
-    for chainage, angle in zip(plan.module_chainages_m, plan.module_angles_deg):
+    if not (len(plan.module_chainages_m) == len(plan.module_angles_deg) ==
+            len(plan.module_banks) == len(plan.module_flows_full_speed_m3_h) ==
+            plan.active_modules):
+        raise ValueError("Las posiciones, orillas y caudales por CF104 no coinciden.")
+    for chainage, angle, bank, full_speed_flow in zip(
+            plan.module_chainages_m, plan.module_angles_deg, plan.module_banks,
+            plan.module_flows_full_speed_m3_h):
         j = int(np.argmin(abs(station_s - chainage)))
         station = stations[j]
-        px = station["x"] + .18 * station["width_m"] * station["normal_x"] / scale
-        py = station["y"] + .18 * station["width_m"] * station["normal_y"] / scale
+        side = 1 if bank == "Exterior" else -1
+        px = station["x"] + side * .35 * station["width_m"] * station["normal_x"] / scale
+        py = station["y"] + side * .35 * station["width_m"] * station["normal_y"] / scale
         radius2 = ((xx - px) * scale) ** 2 + ((yy - py) * scale) ** 2
         weight = np.exp(-radius2 / (2 * source_radius ** 2)) * wet
         if weight.sum() <= 0:
@@ -92,6 +98,7 @@ def compute_cfd_preview(model, plan, *, cell_m=2.5, duration_s=120.0,
         theta = np.deg2rad(angle)
         direction_x = station["tangent_x"] * np.cos(theta) + station["normal_x"] * np.sin(theta)
         direction_y = station["tangent_y"] * np.cos(theta) + station["normal_y"] * np.sin(theta)
+        q_module = full_speed_flow * plan.speed_fraction / 3600
         acceleration = impulse_fraction * q_module * ideal_speed * weight / (depth * cell_m ** 2)
         fx_cell += acceleration * direction_x
         fy_cell += acceleration * direction_y

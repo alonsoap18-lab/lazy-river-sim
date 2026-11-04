@@ -37,6 +37,17 @@ def compare_editable_to_saved(plan, scenario: int, floor_n: float,
     saved = manifest["scenarios"][str(scenario)]["pumps"]
     current_q = plan.installed_operating_flow_m3_h / plan.active_modules
     saved_q = manifest["reference_flow_us_gpm_per_cf104"] * US_GPM_TO_M3_H
+    full_speed_flows = getattr(plan, "module_flows_full_speed_m3_h", None)
+    if full_speed_flows is None:
+        unit_flows = (current_q,) * plan.active_modules
+    else:
+        unit_flows = tuple(flow * plan.speed_fraction
+                           for flow in full_speed_flows)
+    unit_flow_matches = (len(unit_flows) == plan.active_modules and
+                         all(abs(flow-saved_q)/saved_q < .01
+                             for flow in unit_flows))
+    flow_display = (f"{min(unit_flows):.1f}–{max(unit_flows):.1f} m³/h"
+                    if unit_flows else "Sin caudales por unidad")
     current_pos = np.asarray(plan.module_chainages_m, dtype=float)
     saved_pos = np.asarray([unit["chainage_m"] for unit in saved], dtype=float)
     position_gap = None
@@ -56,9 +67,9 @@ def compare_editable_to_saved(plan, scenario: int, floor_n: float,
         {"Dato": "Bombas activas", "Editable": str(plan.active_modules),
          "CFD guardado": str(scenario),
          "Coincide": plan.active_modules == scenario},
-        {"Dato": "Caudal por bomba", "Editable": f"{current_q:.1f} m³/h",
+        {"Dato": "Caudal por bomba", "Editable": flow_display,
          "CFD guardado": f"{saved_q:.1f} m³/h",
-         "Coincide": abs(current_q-saved_q)/saved_q < .01},
+         "Coincide": unit_flow_matches},
         {"Dato": "Variador", "Editable": f"{plan.speed_fraction:.0%}",
          "CFD guardado": "100 % nominal · Q fijo",
          "Coincide": abs(plan.speed_fraction-1) < .001},

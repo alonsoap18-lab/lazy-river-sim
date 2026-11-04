@@ -51,6 +51,15 @@ class SavedCfdDecisionTest(unittest.TestCase):
         _, changed_position = compare_editable_to_saved(moved, **inputs)
         self.assertFalse(changed_position["positions_match"])
 
+        # The total flow can match while individual CF104 discharges do not.
+        unequal = SimpleNamespace(**{**vars(plan),
+            "module_flows_full_speed_m3_h":
+                (flow * .8, flow * 1.2, *((flow,) * 17))})
+        rows, changed_flow = compare_editable_to_saved(unequal, **inputs)
+        self.assertFalse(changed_flow["all_match"])
+        self.assertFalse(next(row for row in rows
+                              if row["Dato"] == "Caudal por bomba")["Coincide"])
+
     def test_main_beach_does_not_generate_wide_pass_alerts(self):
         self.assertTrue(all("Playa" not in alert["Observación"]
                             for alert in attention_rows(19)))

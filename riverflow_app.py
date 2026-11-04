@@ -1957,7 +1957,8 @@ def main():
             model.geometry.scale_m_per_unit,
             tuple(plan.station_areas_m2), tuple(plan.station_manning_n),
             tuple(plan.module_chainages_m), tuple(plan.module_angles_deg),
-            plan.module_flow_full_speed_m3_h, plan.module_head_full_speed_ft,
+            tuple(plan.module_banks), tuple(plan.module_flows_full_speed_m3_h),
+            plan.module_head_full_speed_ft,
             plan.speed_fraction, cfd_impulse_pct, cfd_duration_min,
             cfd_cell_m, cfd_mixing)
         if st.button("Ejecutar simulación 2D experimental", key="riverflow_cfd_run"):
