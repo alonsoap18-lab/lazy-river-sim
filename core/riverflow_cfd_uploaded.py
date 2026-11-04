@@ -31,14 +31,26 @@ def _browser_compatible_2d(html: str, *, detail_scale: bool = True) -> str:
         '"opacity":0.95,"size":4',
         '"color":"#172d40","line":{"color":"#172d40","width":0},'
         '"opacity":0.55,"size":3')
+    # Plotly.addFrames may finish after the following promise callback starts.
+    # Retain the exact saved frames as a script variable instead of reading a
+    # private, possibly still empty Plotly transition cache at that instant.
+    call_start = plot.index("Plotly.addFrames(")
+    data_start = plot.index("[", call_start)
+    _, data_length = json.JSONDecoder().raw_decode(plot[data_start:])
+    data_end = data_start + data_length
+    call_prefix = plot[call_start:data_start]
+    plot = (plot[:call_start] + "window.nyaSavedFrames = " +
+            plot[data_start:data_end] + ";\n                            " +
+            call_prefix + "window.nyaSavedFrames" + plot[data_end:])
     start = plot.index("        const gd = document.getElementById(")
     gd_line = plot[start:plot.index(";", start) + 1]
     end = plot.index("        setTimeout(advance, 500);", start) + len(
         "        setTimeout(advance, 500);")
     plot = plot[:start] + gd_line + '''
-        const savedFrames = gd._transitionData._frames;
+        const savedFrames = window.nyaSavedFrames;
         const frameByName = new Map(savedFrames.map(frame => [frame.name, frame]));
         const sequence = savedFrames.map(frame => frame.name);
+        gd.dataset.nyaPlayback = 'ready:' + sequence.length;
         let playing = false, cursor = 0, timer = null;
         async function showFrame(index) {
             const frame = frameByName.get(sequence[index]);
@@ -53,6 +65,7 @@ def _browser_compatible_2d(html: str, *, detail_scale: bool = True) -> str:
                 await Plotly.restyle(gd, {x: [tracers.x], y: [tracers.y]}, [tracerIndex]);
             }
             await Plotly.relayout(gd, {'sliders[0].active': index});
+            gd.dataset.nyaPlayback = 'frame:' + index;
         }
         function stopPlayback() {
             playing = false;
@@ -61,7 +74,11 @@ def _browser_compatible_2d(html: str, *, detail_scale: bool = True) -> str:
         }
         async function advance() {
             if (!playing) return;
-            await showFrame(cursor);
+            try { await showFrame(cursor); }
+            catch (error) {
+                gd.dataset.nyaPlayback = 'error:' + String(error);
+                stopPlayback(); return;
+            }
             cursor += 1;
             if (cursor >= sequence.length) { stopPlayback(); return; }
             if (playing) timer = setTimeout(advance, 450);
