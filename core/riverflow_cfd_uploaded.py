@@ -265,7 +265,7 @@ def render_matching_run(dxf_sha256: str, *, active_length_m: float | None = None
         html = source.read()
     if view.startswith("2D"):
         html = _browser_compatible_2d(html, detail_scale=detail_scale)
-        st.caption("Vista 2D compatible con navegadores sin WebGL. Conserva los mismos "
+        st.caption("Visor CFD 2D · revisión de capas fijas. Vista compatible con navegadores sin WebGL. Conserva los mismos "
                    "campos y tiempos guardados. Reproducir recorre una vez de 0 a 1.200 s "
                    "y se detiene en el último campo, sin volver bruscamente a cero. "
                    "Pausa detiene el avance y la barra permite elegir un instante. "
