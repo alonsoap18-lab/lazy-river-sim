@@ -265,6 +265,19 @@ def render_matching_run(dxf_sha256: str, *, active_length_m: float | None = None
                "Cambiar el contenido del DXF, aunque conserve el nombre, invalida esta corrida. "
                "Los dos escenarios tienen el mismo DXF, malla, caudal unitario y duración; "
                "solo cambia la ubicación de las bombas.")
+    saved_flow_m3_h = manifest["reference_flow_gpm_per_pump"] * .003785411784 * 60
+    outer = sum(station["bank"] == "Exterior" for station in manifest["stations"])
+    st.caption(
+        f"Ficha de esta corrida: {manifest['length_m']:.0f} m; profundidad "
+        f"{manifest['depth_max_m']:.2f} m (mínima de malla "
+        f"{manifest['depth_min_m']:.2f} m en playa); Manning piso "
+        f"{manifest['floor_manning_n']:.3f}, paredes "
+        f"{manifest['wall_manning_n']:.3f}; "
+        f"{manifest['reference_flow_gpm_per_pump']:,.0f} US gpm "
+        f"({saved_flow_m3_h:.1f} m³/h) por CF104; "
+        f"{outer} bombas en margen exterior y "
+        f"{manifest['active_pumps'] - outer} en interior. "
+        "Las posiciones exactas son las de la corrida seleccionada, no las del menú.")
     differences = saved_run_differences(
         manifest, active_length_m=active_length_m, active_depth_m=active_depth_m,
         active_pumps=active_pumps, active_floor_n=active_floor_n,

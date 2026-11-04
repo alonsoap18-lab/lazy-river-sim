@@ -26,7 +26,7 @@ from core.riverflow_cfd_saved import render_saved_cfd, source_dxf_matches
 from core.riverflow_decision import (consistency_checks, evaluate_count_options,
                                      evaluate_decision_cases)
 from core.riverflow_decision_gate import (comparison_rows as fixed_cfd_comparison_rows,
-                                          load_fixed_comparison)
+                                          load_fixed_comparison, matching_layout_cases)
 from core.riverflow_momentum_pilot import compute_momentum_pilot
 from core.riverflow_momentum_bound import compute_momentum_bound
 from core.riverflow_nozzle_screen import count_sensitivity, screen_lap_band
@@ -2554,7 +2554,9 @@ def main():
             st.dataframe(fixed_cfd_comparison_rows(fixed_comparison), hide_index=True,
                          width="stretch")
             st.caption("Cada ensayo usa el archivo DXF escalado a 536 m, "
-                       "20 CF104, 5.352 celdas y 1.200 s físicos. "
+                       "1,20 m de profundidad, Manning piso 0,013 / paredes 0,025, "
+                       "20 CF104 a 2.014 US gpm (457,4 m³/h) por unidad, "
+                       "5.352 celdas y 1.200 s físicos. "
                        "La tercera fila cambia solo RF-06 de 164 a 138 m. "
                        "Retorno = velocidad longitudinal menor de −0,02 m/s; "
                        "el porcentaje corresponde a celdas de esta malla.")
@@ -2602,14 +2604,23 @@ def main():
             if (beach_geometry is not None and
                     abs((beach_geometry.flat_entry_width_m or 0) - 22.220009745232062) > .1):
                 incompatible.append("longitud plana de playa")
-            if placement_mode == "Editar por recorrido (m)":
-                incompatible.append("ubicaciones editadas de bombas")
+            matching_layouts = matching_layout_cases(
+                fixed_comparison, plan.module_chainages_m, plan.module_banks)
+            if not matching_layouts:
+                incompatible.append("posiciones u orillas de bombas")
             if any(abs(angle) > 1 for angle in plan.module_angles_deg):
                 incompatible.append("ángulos de descarga")
             if incompatible:
                 st.warning("El menú actual difiere de las corridas guardadas en " +
                            ", ".join(incompatible) + ". La tabla CFD no cambia al editar "
                            "controles y no representa esa configuración.")
+            else:
+                labels = {case["id"]: case["label"]
+                          for case in fixed_comparison["cases"]}
+                st.info("Los controles actuales coinciden con la corrida guardada «" +
+                        ", ".join(labels[key] for key in matching_layouts) +
+                        "». Esto identifica el escenario; no valida su física ni "
+                        "recalcula OpenFOAM.")
             st.caption("Las posiciones y orillas de cada fila son las de esa corrida; "
                        "seleccionar otra distribución automática en el menú tampoco "
                        "recalcula estos campos OpenFOAM.")
