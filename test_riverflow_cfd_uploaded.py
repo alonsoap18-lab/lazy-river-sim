@@ -11,6 +11,29 @@ from core import riverflow_cfd_uploaded
 
 
 class UploadedCFDTests(unittest.TestCase):
+    def test_saved_run_flags_changed_beach_and_individual_pump_inputs(self):
+        digest = "47154b381560b10b58d2729f9e2ae79dc90ff1f24af8a7640d36a41b15f68060"
+        _, _, scenarios = riverflow_cfd_uploaded.load_matching_run(digest)
+        manifest, _ = scenarios["reference20"]
+        flow = manifest["reference_flow_gpm_per_pump"] * .003785411784 * 60
+        common = dict(active_length_m=536, active_depth_m=1.2,
+                      active_pumps=20, active_floor_n=.013, active_wall_n=.025,
+                      active_wall_n_calm=.025, active_unit_flows_m3_h=(flow,) * 20,
+                      active_beach_profile=True, active_beach_share_pct=62,
+                      active_beach_ramp_pct=6.5, active_beach_threshold_m=15)
+        self.assertEqual(riverflow_cfd_uploaded.saved_run_differences(
+            manifest, **common), [])
+        changed = {**common, "active_wall_n_calm": .030,
+                   "active_beach_share_pct": 70,
+                   "active_beach_threshold_m": 17,
+                   "active_unit_flows_m3_h": (flow,) * 19 + (flow * .7,)}
+        differences = riverflow_cfd_uploaded.saved_run_differences(
+            manifest, **changed)
+        self.assertTrue(any("Manning de pared de playa" in row for row in differences))
+        self.assertTrue(any("fracción plana" in row for row in differences))
+        self.assertTrue(any("umbral de playa" in row for row in differences))
+        self.assertTrue(any("caudales individuales" in row for row in differences))
+
     def test_published_diagnostic_replaces_unstable_runs(self):
         digest = "47154b381560b10b58d2729f9e2ae79dc90ff1f24af8a7640d36a41b15f68060"
         match = riverflow_cfd_uploaded.load_matching_run(digest)

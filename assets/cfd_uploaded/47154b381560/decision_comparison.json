@@ -9,6 +9,19 @@
   "floor_manning_n": 0.013,
   "wall_manning_n": 0.025,
   "source": "Completed OpenFOAM 14 qa_new_*_dt05 transient_report.json files; no new CFD calculation",
+  "extension_1800_s": {
+    "source": "qa_new_reference20_dt05_to_1800s and qa_new_move6_dt05_to_1800s stability_recheck_report.json; existing completed runs",
+    "reference20": {
+      "median_forward_m_s": 0.05887573767968298,
+      "reverse_cell_fraction": 0.17488789237668162,
+      "returning_10m_bins": [8, 14, 42]
+    },
+    "move6": {
+      "median_forward_m_s": 0.06429474991800893,
+      "reverse_cell_fraction": 0.17339312406576982,
+      "returning_10m_bins": [8, 14, 42]
+    }
+  },
   "cases": [
     {
       "id": "reference20",

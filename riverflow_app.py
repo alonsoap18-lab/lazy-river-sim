@@ -1184,6 +1184,9 @@ def main():
             beach_flat_m=(beach_geometry.beach_max_extra_width_m *
                           beach_first_share / 100 if beach_geometry else None),
             beach_ramp_pct=beach_ramp_pct,
+            beach_profile_enabled=use_beach_profile,
+            beach_share_pct=beach_first_share,
+            beach_threshold_m=calm_width_m,
             uploaded_sha256=(hashlib.sha256(uploaded_bytes).hexdigest()
                              if uploaded_bytes is not None else None))
         if section_checks is not None:
@@ -2554,6 +2557,19 @@ def main():
                        "La tercera fila cambia solo RF-06 de 164 a 138 m. "
                        "Retorno = velocidad longitudinal menor de −0,02 m/s; "
                        "el porcentaje corresponde a celdas de esta malla.")
+            extension = fixed_comparison.get("extension_1800_s")
+            if extension:
+                original = extension["reference20"]
+                moved = extension["move6"]
+                st.caption(
+                    "Comprobación ya calculada a 1.800 s: referencia "
+                    f"{original['median_forward_m_s']:.3f} m/s y "
+                    f"{original['reverse_cell_fraction']:.1%} de celdas en retorno; "
+                    f"RF-06 adelantada {moved['median_forward_m_s']:.3f} m/s y "
+                    f"{moved['reverse_cell_fraction']:.1%}. "
+                    "Ambas conservan los retornos de 80–90, 140–150 y 420–430 m. "
+                    "No es una vuelta cronometrada ni valida la ubicación."
+                )
             incompatible = []
             reference_m3_h = fixed_comparison["pump_reference_flow_gpm"] * US_GPM_TO_M3_H
             if abs(plan.length_m - fixed_comparison["length_m"]) > .1:
@@ -2565,14 +2581,16 @@ def main():
             if abs(depth_m - 1.2) > .001:
                 incompatible.append("profundidad")
             if abs(floor_n - fixed_comparison["floor_manning_n"]) > .0001 or abs(
-                    wall_n_current - fixed_comparison["wall_manning_n"]) > .0001:
+                    wall_n_current - fixed_comparison["wall_manning_n"]) > .0001 or abs(
+                    wall_n_calm - fixed_comparison["wall_manning_n"]) > .0001:
                 incompatible.append("rugosidad")
             if abs(plan.module_flow_full_speed_m3_h * plan.speed_fraction -
                    reference_m3_h) > .05 * reference_m3_h:
                 incompatible.append("caudal por CF104")
             if nozzle_type != "7 puertos":
                 incompatible.append("tipo de descarga")
-            if not use_beach_profile or abs(beach_ramp_pct - 6.5) > .01:
+            if (not use_beach_profile or abs(beach_ramp_pct - 6.5) > .01 or
+                    beach_first_share != 62 or abs(calm_width_m - 15) > .01):
                 incompatible.append("perfil de playa")
             if (beach_geometry is not None and
                     abs((beach_geometry.flat_entry_width_m or 0) - 22.220009745232062) > .1):

@@ -157,13 +157,84 @@ def load_matching_run(dxf_sha256: str) -> tuple[Path, dict, dict] | None:
     return folder, manifest, scenarios
 
 
+def saved_run_differences(manifest: dict, *, active_length_m: float | None = None,
+                          active_depth_m: float | None = None,
+                          active_pumps: int | None = None,
+                          active_floor_n: float | None = None,
+                          active_wall_n: float | None = None,
+                          active_wall_n_calm: float | None = None,
+                          active_flow_each_m3_h: float | None = None,
+                          active_unit_flows_m3_h: tuple[float, ...] | None = None,
+                          active_nozzle_type: str | None = None,
+                          active_beach_profile: bool | None = None,
+                          active_beach_share_pct: float | None = None,
+                          active_beach_ramp_pct: float | None = None,
+                          active_beach_threshold_m: float | None = None,
+                          active_chainages_m: tuple[float, ...] | None = None,
+                          active_banks: tuple[str, ...] | None = None,
+                          active_angles_deg: tuple[float, ...] | None = None) -> list[str]:
+    """Report menu inputs that do not describe the saved CFD boundary conditions."""
+    differences = []
+    for label, active, saved, tolerance in (
+        ("longitud escalada", active_length_m, manifest["length_m"], .1),
+        ("profundidad", active_depth_m, 1.2, .001),
+        ("bombas activas", active_pumps, manifest["active_pumps"], 0),
+        ("Manning del piso", active_floor_n, manifest["floor_manning_n"], .0001),
+        ("Manning de pared de corriente", active_wall_n,
+         manifest["wall_manning_n"], .0001),
+        ("Manning de pared de playa", active_wall_n_calm,
+         manifest["wall_manning_n"], .0001),
+        ("fracción plana de playa (%)", active_beach_share_pct, 62.0, .01),
+        ("pendiente de playa (%)", active_beach_ramp_pct,
+         manifest["beach_ramp_slope"] * 100, .01),
+        ("umbral de playa (m)", active_beach_threshold_m, 15.0, .01),
+    ):
+        if active is not None and abs(active - saved) > tolerance:
+            differences.append(f"{label}: menú {active:g}, corrida {saved:g}")
+    if active_beach_profile is False:
+        differences.append("perfil de playa desactivado; la corrida sí lo incluye")
+    saved_flow_m3_h = manifest["reference_flow_gpm_per_pump"] * .003785411784 * 60
+    if (active_flow_each_m3_h is not None and
+            abs(active_flow_each_m3_h - saved_flow_m3_h) > .05 * saved_flow_m3_h):
+        differences.append("caudal CF104 por unidad: menú "
+                           f"{active_flow_each_m3_h:.0f} m³/h, corrida "
+                           f"{saved_flow_m3_h:.0f} m³/h")
+    if (active_unit_flows_m3_h is not None and
+            (len(active_unit_flows_m3_h) != manifest["active_pumps"] or
+             any(abs(flow - saved_flow_m3_h) > .05 * saved_flow_m3_h
+                 for flow in active_unit_flows_m3_h))):
+        differences.append("uno o más caudales individuales CF104 difieren de la corrida")
+    if active_nozzle_type is not None and not active_nozzle_type.startswith("7"):
+        differences.append("la corrida representa 7 puertos agrupados; "
+                           f"el menú usa {active_nozzle_type}")
+    saved_stations = manifest["stations"]
+    if (active_chainages_m is not None and active_banks is not None and
+            (len(active_chainages_m) != len(saved_stations) or
+             len(active_banks) != len(saved_stations) or
+             any(abs(position - station["chainage_m"]) > 1.0 or
+                 bank != station["bank"] for position, bank, station in
+                 zip(active_chainages_m, active_banks, saved_stations)))):
+        differences.append("posiciones u orillas de bombas distintas")
+    if (active_angles_deg is not None and
+            (len(active_angles_deg) != len(saved_stations) or
+             any(abs(angle) > 1.0 for angle in active_angles_deg))):
+        differences.append("ángulos de descarga distintos de 0°")
+    return differences
+
+
 def render_matching_run(dxf_sha256: str, *, active_length_m: float | None = None,
                         active_depth_m: float | None = None,
                         active_pumps: int | None = None,
                         active_floor_n: float | None = None,
                         active_wall_n: float | None = None,
+                        active_wall_n_calm: float | None = None,
                         active_flow_each_m3_h: float | None = None,
+                        active_unit_flows_m3_h: tuple[float, ...] | None = None,
                         active_nozzle_type: str | None = None,
+                        active_beach_profile: bool | None = None,
+                        active_beach_share_pct: float | None = None,
+                        active_beach_ramp_pct: float | None = None,
+                        active_beach_threshold_m: float | None = None,
                         active_chainages_m: tuple[float, ...] | None = None,
                         active_banks: tuple[str, ...] | None = None,
                         active_angles_deg: tuple[float, ...] | None = None) -> bool:
@@ -194,36 +265,19 @@ def render_matching_run(dxf_sha256: str, *, active_length_m: float | None = None
                "Cambiar el contenido del DXF, aunque conserve el nombre, invalida esta corrida. "
                "Los dos escenarios tienen el mismo DXF, malla, caudal unitario y duración; "
                "solo cambia la ubicación de las bombas.")
-    differences = []
-    for label, active, saved, tolerance in (
-        ("longitud escalada", active_length_m, manifest["length_m"], .1),
-        ("profundidad", active_depth_m, 1.2, .001),
-        ("bombas activas", active_pumps, manifest["active_pumps"], 0),
-        ("Manning del piso", active_floor_n, manifest["floor_manning_n"], .0001),
-        ("Manning de pared", active_wall_n, manifest["wall_manning_n"], .0001),
-    ):
-        if active is not None and abs(active - saved) > tolerance:
-            differences.append(f"{label}: menú {active:g}, corrida {saved:g}")
-    saved_flow_m3_h = manifest["reference_flow_gpm_per_pump"] * .003785411784 * 60
-    if (active_flow_each_m3_h is not None and
-            abs(active_flow_each_m3_h - saved_flow_m3_h) > .05 * saved_flow_m3_h):
-        differences.append("caudal CF104 por unidad: menú "
-                           f"{active_flow_each_m3_h:.0f} m³/h, corrida "
-                           f"{saved_flow_m3_h:.0f} m³/h")
-    if active_nozzle_type is not None and not active_nozzle_type.startswith("7"):
-        differences.append("la corrida representa 7 puertos agrupados; "
-                           f"el menú usa {active_nozzle_type}")
-    saved_stations = manifest["stations"]
-    if (active_chainages_m is not None and active_banks is not None and
-            len(active_chainages_m) == len(saved_stations) and
-            len(active_banks) == len(saved_stations) and
-            any(abs(position - station["chainage_m"]) > 1.0 or
-                bank != station["bank"] for position, bank, station in
-                zip(active_chainages_m, active_banks, saved_stations, strict=True))):
-        differences.append("posiciones u orillas de bombas distintas")
-    if (active_angles_deg is not None and
-            any(abs(angle) > 1.0 for angle in active_angles_deg)):
-        differences.append("ángulos de descarga distintos de 0°")
+    differences = saved_run_differences(
+        manifest, active_length_m=active_length_m, active_depth_m=active_depth_m,
+        active_pumps=active_pumps, active_floor_n=active_floor_n,
+        active_wall_n=active_wall_n, active_wall_n_calm=active_wall_n_calm,
+        active_flow_each_m3_h=active_flow_each_m3_h,
+        active_unit_flows_m3_h=active_unit_flows_m3_h,
+        active_nozzle_type=active_nozzle_type,
+        active_beach_profile=active_beach_profile,
+        active_beach_share_pct=active_beach_share_pct,
+        active_beach_ramp_pct=active_beach_ramp_pct,
+        active_beach_threshold_m=active_beach_threshold_m,
+        active_chainages_m=active_chainages_m, active_banks=active_banks,
+        active_angles_deg=active_angles_deg)
     if differences:
         st.warning("Esta corrida usa el mismo archivo DXF, pero sus parámetros no "
                    "coinciden con el menú actual: " + "; ".join(differences) +

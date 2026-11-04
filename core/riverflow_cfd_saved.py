@@ -381,6 +381,9 @@ def render_saved_cfd(plan, speed_pct: int, uploaded_dxf: bool, *,
                      floor_n: float, wall_n_current: float, wall_n_calm: float,
                      depth_m: float, nozzle_type: str,
                      beach_flat_m: float | None, beach_ramp_pct: float,
+                     beach_profile_enabled: bool = True,
+                     beach_share_pct: float = 62.0,
+                     beach_threshold_m: float = 15.0,
                      uploaded_sha256: str | None = None) -> None:
     import streamlit as st
     if uploaded_dxf:
@@ -393,9 +396,17 @@ def render_saved_cfd(plan, speed_pct: int, uploaded_dxf: bool, *,
             uploaded_sha256, active_length_m=plan.length_m,
             active_depth_m=depth_m, active_pumps=plan.active_modules,
             active_floor_n=floor_n, active_wall_n=wall_n_current,
+            active_wall_n_calm=wall_n_calm,
             active_flow_each_m3_h=(plan.module_flow_full_speed_m3_h *
                                    plan.speed_fraction),
+            active_unit_flows_m3_h=tuple(
+                flow * plan.speed_fraction
+                for flow in plan.module_flows_full_speed_m3_h),
             active_nozzle_type=nozzle_type,
+            active_beach_profile=beach_profile_enabled,
+            active_beach_share_pct=beach_share_pct,
+            active_beach_ramp_pct=beach_ramp_pct,
+            active_beach_threshold_m=beach_threshold_m,
             active_chainages_m=plan.module_chainages_m,
             active_banks=plan.module_banks,
             active_angles_deg=plan.module_angles_deg))
