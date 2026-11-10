@@ -1,7 +1,10 @@
 {
-  "schema": 1,
+  "schema": 2,
   "source_dxf_sha256": "1efc2aebbb8b90f3e8d1a8b202552c92422d46b102b587425f4a1d2eeab0d373",
-  "source_comparison": "experiments/nya_cfd_local/individual_vfd_comparison.json",
+  "source_comparisons": [
+    "experiments/nya_cfd_local/individual_vfd_comparison.json",
+    "experiments/nya_cfd_local/vfd_rf234_comparison.json"
+  ],
   "mesh_cells": 4056,
   "physical_time_s": 1200,
   "mask_rule": "exclude 6 m around union of jets; beach separate; volume-weighted",
@@ -11,8 +14,10 @@
     {
       "id": "qa_original_reference20_dt05",
       "label": "20 × 100 %",
-      "rf17_vfd_pct": 100,
-      "rf17_cfd_flow_m3_h": 457.42915997856,
+      "affected_pumps": [],
+      "vfd_pct": 100,
+      "adjusted_cfd_flow_per_pump_m3_h": 457.42915997856,
+      "flow_basis": "caudal documental al 100 %",
       "projected_hydraulic_lap_min": 24.53041522351025,
       "wide_passage_slow_volume_fraction": 0.12260969101630788,
       "narrow_passage_p95_m_s": 0.8513149828260965,
@@ -23,8 +28,12 @@
     {
       "id": "qa_vfd_rf17_80_dt05",
       "label": "RF-17 al 80 % · otras 19 al 100 %",
-      "rf17_vfd_pct": 80,
-      "rf17_cfd_flow_m3_h": 365.7324268263035,
+      "affected_pumps": [
+        17
+      ],
+      "vfd_pct": 80,
+      "adjusted_cfd_flow_per_pump_m3_h": 365.7324268263035,
+      "flow_basis": "afinidad + circuito supuesto",
       "projected_hydraulic_lap_min": 24.895278467092282,
       "wide_passage_slow_volume_fraction": 0.20720050435945664,
       "narrow_passage_p95_m_s": 0.8385604203372589,
@@ -35,8 +44,12 @@
     {
       "id": "qa_vfd_rf17_60_dt05",
       "label": "RF-17 al 60 % · otras 19 al 100 %",
-      "rf17_vfd_pct": 60,
-      "rf17_cfd_flow_m3_h": 274.0804103023381,
+      "affected_pumps": [
+        17
+      ],
+      "vfd_pct": 60,
+      "adjusted_cfd_flow_per_pump_m3_h": 274.0804103023381,
+      "flow_basis": "afinidad + circuito supuesto",
       "projected_hydraulic_lap_min": 25.181038554159862,
       "wide_passage_slow_volume_fraction": 0.23433098434088281,
       "narrow_passage_p95_m_s": 0.8285060781124054,
@@ -46,15 +59,39 @@
     },
     {
       "id": "qa_original_narrow3_q80_consistent_dt05",
-      "label": "RF-16, 17 y 18 al 80 %",
-      "rf17_vfd_pct": 80,
-      "rf17_cfd_flow_m3_h": 365.943327982848,
+      "label": "RF-16/17/18 · caudal impuesto al 80 %",
+      "affected_pumps": [
+        16,
+        17,
+        18
+      ],
+      "vfd_pct": null,
+      "adjusted_cfd_flow_per_pump_m3_h": 365.943327982848,
+      "flow_basis": "80 % directo del caudal documental",
       "projected_hydraulic_lap_min": 25.69756054937616,
       "wide_passage_slow_volume_fraction": 0.2979685883317895,
       "narrow_passage_p95_m_s": 0.811776163148203,
       "beach_median_m_s": 0.22265554697088172,
       "reverse_volume_fraction": 0.0,
       "max_courant_observed": 0.080235872
+    },
+    {
+      "id": "qa_vfd_rf2_3_4_80_dt05",
+      "label": "RF-2/3/4 al 80 % · otras 17 al 100 %",
+      "affected_pumps": [
+        2,
+        3,
+        4
+      ],
+      "vfd_pct": 80,
+      "adjusted_cfd_flow_per_pump_m3_h": 365.7324268263035,
+      "flow_basis": "afinidad + circuito supuesto",
+      "projected_hydraulic_lap_min": 25.47108627349241,
+      "wide_passage_slow_volume_fraction": 0.30401915848837674,
+      "narrow_passage_p95_m_s": 0.8191948289500619,
+      "beach_median_m_s": 0.2238252347116845,
+      "reverse_volume_fraction": 0.0,
+      "max_courant_observed": 0.081094018
     }
   ]
 }

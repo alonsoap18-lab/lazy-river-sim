@@ -2627,25 +2627,49 @@ def main():
                         key="rf_saved_individual_vfd_case")
                     vfd_case = vfd_cases[selected_vfd]
                     vfd_columns = st.columns(4)
-                    vfd_columns[0].metric("VFD RF-17",
-                                          f"{vfd_case['rf17_vfd_pct']} %")
-                    vfd_columns[1].metric("Q impuesto RF-17 en CFD",
-                                          f"{vfd_case['rf17_cfd_flow_m3_h']:.0f} m³/h")
+                    vfd_columns[0].metric(
+                        "Ajuste ensayado",
+                        (f"VFD {vfd_case['vfd_pct']} %"
+                         if vfd_case["vfd_pct"] is not None else "Q al 80 %"))
+                    vfd_columns[1].metric(
+                        "Q impuesto por bomba ajustada",
+                        f"{vfd_case['adjusted_cfd_flow_per_pump_m3_h']:.0f} m³/h")
                     vfd_columns[2].metric("Vuelta hidráulica proyectada",
                                           (f"{vfd_case['projected_hydraulic_lap_min']:.2f} min"
                                            if vfd_case["projected_hydraulic_lap_min"] is not None
                                            else "Sin avance continuo"))
                     vfd_columns[3].metric("Bahías de paso lentas",
                                           f"{100 * vfd_case['wide_passage_slow_volume_fraction']:.1f} %")
+                    if vfd_case["affected_pumps"]:
+                        reference_vfd = vfd_archive["cases"][0]
+                        delta_lap = (vfd_case["projected_hydraulic_lap_min"] -
+                                     reference_vfd["projected_hydraulic_lap_min"])
+                        delta_slow = 100 * (
+                            vfd_case["wide_passage_slow_volume_fraction"] -
+                            reference_vfd["wide_passage_slow_volume_fraction"])
+                        delta_p95 = (vfd_case["narrow_passage_p95_m_s"] -
+                                     reference_vfd["narrow_passage_p95_m_s"])
+                        st.caption(
+                            f"Frente a 20 × 100 %: vuelta {delta_lap:+.2f} min; "
+                            f"volumen lento en bahías {delta_slow:+.1f} puntos; "
+                            f"P95 de pasos angostos {delta_p95:+.3f} m/s. "
+                            f"Base del caudal: {vfd_case['flow_basis']}.")
+                        if vfd_case["id"] == "qa_vfd_rf2_3_4_80_dt05":
+                            st.warning(
+                                "RF-2/3/4 al 80 % reduce ligeramente el pico en "
+                                "pasos estrechos, pero deja mucho más volumen lento "
+                                "en bahías de paso. Se descarta como ajuste general "
+                                "para un flujo uniforme en este ensayo.")
                     st.dataframe(vfd_archive_rows(vfd_archive), hide_index=True,
                                  width="stretch")
                     st.caption("Los casos usan 20 CF104, el mismo DXF, 4.056 celdas, "
                                "Manning piso 0,013 / paredes 0,025 y 1.200 s físicos. "
-                               "El caudal RF-17 a RPM parcial se estimó con afinidad y "
+                               "Los caudales a VFD parcial se estimaron con afinidad y "
                                "un circuito NYA supuesto, y se aplicó al caudal CFD "
                                "documental de 2.014 US gpm a plena velocidad; Riverflow "
-                               "no entregó la curva a RPM reducidas. El caso de tres "
-                               "bombas usa 80 % directo del caudal documental. Solo estas "
+                               "no entregó la curva a RPM reducidas. RF-16/17/18 "
+                               "usa 80 % directo del caudal documental, sin resolver "
+                               "una curva VFD. Solo estas "
                                "configuraciones tienen "
                                "campo CFD guardado. La vuelta supone estable el campo "
                                "final; no es el recorrido de una persona. Bahías lentas "

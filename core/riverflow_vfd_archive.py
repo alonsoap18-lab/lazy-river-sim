@@ -13,10 +13,11 @@ def load_vfd_archive(dxf_sha256: str) -> dict | None:
     if not ARCHIVE_FILE.is_file():
         return None
     archive = json.loads(ARCHIVE_FILE.read_text(encoding="utf-8"))
-    if archive.get("schema") != 1 or archive.get("source_dxf_sha256") != dxf_sha256:
+    if archive.get("schema") != 2 or archive.get("source_dxf_sha256") != dxf_sha256:
         return None
     if (archive.get("mesh_cells") != 4056 or archive.get("physical_time_s") != 1200
-            or len(archive.get("cases", [])) != 4):
+            or len(archive.get("cases", [])) != 5
+            or len({case.get("id") for case in archive["cases"]}) != 5):
         raise ValueError("Archivo VFD del DXF original incompleto")
     return archive
 
@@ -24,7 +25,10 @@ def load_vfd_archive(dxf_sha256: str) -> dict | None:
 def vfd_archive_rows(archive: dict) -> list[dict]:
     return [{
         "Configuración guardada": case["label"],
-        "VFD RF-17 (%)": case["rf17_vfd_pct"],
+        "Ajuste": (f"VFD {case['vfd_pct']} %" if case["vfd_pct"] is not None
+                   else "Q impuesto al 80 %"),
+        "Q impuesto por bomba ajustada (m³/h)": round(
+            case["adjusted_cfd_flow_per_pump_m3_h"], 1),
         "Vuelta hidráulica (min)": (
             round(case["projected_hydraulic_lap_min"], 2)
             if case["projected_hydraulic_lap_min"] is not None else None),
