@@ -11,6 +11,32 @@ Se extendieron cuatro corridas OpenFOAM hasta **1200 segundos físicos** con la 
 
 La meta de 30–40 minutos equivale a 0,298–0,223 m/s como velocidad efectiva para 536 m. El tiempo mostrado se calcula con la **velocidad longitudinal firmada, media por volumen, en 67 secciones de 8 m**: Σ(8 m / velocidad media de sección) / 60. Es una extrapolación del campo a 1200 s mantenido constante durante una vuelta. No es el tiempo de una persona con chaleco o barra foam y no incorpora trayectorias laterales, paradas o interacción entre personas.
 
+### Relectura de las zonas anchas para la hoja de decisión
+
+La tabla anterior agrupa por ancho ≥15 m y **incluye playa principal**;
+además sus porcentajes son de celdas. Se reutilizaron los mismos cuatro
+campos de 1200 s y la misma malla, separando la playa de las bahías de paso,
+ponderando por volumen de celda y excluyendo los 6 m alrededor de la unión
+de descargas de los cuatro arreglos. No se ejecutó otra corrida CFD.
+
+| CF104 | Volumen lento en bahías de paso <0,15 m/s | P95 longitudinal en pasos <10 m | Mediana longitudinal en playa |
+| ---: | ---: | ---: | ---: |
+| 16 | 49,5 % | 0,720 m/s | 0,203 m/s |
+| 19 | 30,1 % | 0,815 m/s | 0,223 m/s |
+| 20 | **13,1 %** | 0,852 m/s | 0,229 m/s |
+| 21 | 15,4 % | 0,863 m/s | 0,231 m/s |
+
+Esto mantiene **20 como referencia menos desfavorable entre estas cuatro**:
+16 y 19 pierden demasiado avance en las bahías, mientras 21 no mejora su
+cobertura y acelera algo más los pasos estrechos. Ninguna cumple a la vez
+30–40 min extrapolados y uniformidad de avance. La mediana de playa no
+describe toda su anchura: el P95 allí llega a ~0,50 m/s con 20. El umbral
+0,15 m/s es solo diagnóstico, no un límite normativo o de seguridad. Los
+porcentajes son volumen de malla, no caudal o proporción de usuarios.
+
+Reanálisis reproducible: `compare_saved_count_regions.py` y
+`saved_count_regions_1200s.json`. Los cuatro VTK usados permanecen locales.
+
 ## Retornos y remolinos
 
 En las cuatro corridas a 1200 s, **ninguna de las 4056 celdas** tuvo componente longitudinal menor que −0,02 m/s. A 600 s sí había retornos locales en la primera bahía: eran transitorios. La derivada local del campo medio conserva giro (percentil 95 de indicador de giro de ~0,022–0,024 s⁻¹), pero esto **no prueba remolinos cerrados persistentes**. La malla y las descargas agregadas no resuelven los siete puertos, la capa junto a pared, la superficie libre ni vórtices pequeños.

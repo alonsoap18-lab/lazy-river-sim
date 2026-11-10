@@ -100,7 +100,41 @@
       "wide_including_beach_slow_cell_fraction": 0.375,
       "narrow_median_m_s": 0.5150189349918073,
       "beach_median_m_s": 0.18972407738737315,
-      "reverse_cell_fraction": 0.0
+      "reverse_cell_fraction": 0.0,
+      "separated_volume_regions": {
+        "wide_passage_away": {
+          "cells": 528,
+          "volume_m3": 921.8757807443999,
+          "median_m_s": 0.15213933620079084,
+          "p95_m_s": 0.23272135141866584,
+          "volume_fraction_below_0_15": 0.4952392962239921,
+          "volume_fraction_reverse_below_minus_0_02": 0.0
+        },
+        "narrow_passage_away": {
+          "cells": 788,
+          "volume_m3": 1278.7338502443,
+          "median_m_s": 0.5170324911237956,
+          "p95_m_s": 0.7200468923425776,
+          "volume_fraction_below_0_15": 0.004844693396375201,
+          "volume_fraction_reverse_below_minus_0_02": 0.0
+        },
+        "main_beach_away": {
+          "cells": 1200,
+          "volume_m3": 1983.9491245290596,
+          "median_m_s": 0.2029676264442007,
+          "p95_m_s": 0.42220860186419507,
+          "volume_fraction_below_0_15": 0.286555106803432,
+          "volume_fraction_reverse_below_minus_0_02": 0.0
+        },
+        "all_passage_away": {
+          "cells": 1784,
+          "volume_m3": 2997.457974024912,
+          "median_m_s": 0.268083758368877,
+          "p95_m_s": 0.6833878569787863,
+          "volume_fraction_below_0_15": 0.15547180576414876,
+          "volume_fraction_reverse_below_minus_0_02": 0.0
+        }
+      }
     },
     {
       "id": "19_removed",
@@ -110,7 +144,41 @@
       "wide_including_beach_slow_cell_fraction": 0.28846153846153844,
       "narrow_median_m_s": 0.583318686158482,
       "beach_median_m_s": 0.20656208714550306,
-      "reverse_cell_fraction": 0.0
+      "reverse_cell_fraction": 0.0,
+      "separated_volume_regions": {
+        "wide_passage_away": {
+          "cells": 528,
+          "volume_m3": 921.8757807443999,
+          "median_m_s": 0.16648335674629122,
+          "p95_m_s": 0.2661629863698769,
+          "volume_fraction_below_0_15": 0.30138947259970933,
+          "volume_fraction_reverse_below_minus_0_02": 0.0
+        },
+        "narrow_passage_away": {
+          "cells": 788,
+          "volume_m3": 1278.7338502443,
+          "median_m_s": 0.5920031123667743,
+          "p95_m_s": 0.8154112473508737,
+          "volume_fraction_below_0_15": 0.004844693396375201,
+          "volume_fraction_reverse_below_minus_0_02": 0.0
+        },
+        "main_beach_away": {
+          "cells": 1200,
+          "volume_m3": 1983.9491245290596,
+          "median_m_s": 0.22325289947759241,
+          "p95_m_s": 0.47717679922265305,
+          "volume_fraction_below_0_15": 0.2383777078700351,
+          "volume_fraction_reverse_below_minus_0_02": 0.0
+        },
+        "all_passage_away": {
+          "cells": 1784,
+          "volume_m3": 2997.457974024912,
+          "median_m_s": 0.30295442073741335,
+          "p95_m_s": 0.7699699270755913,
+          "volume_fraction_below_0_15": 0.09982417381445932,
+          "volume_fraction_reverse_below_minus_0_02": 0.0
+        }
+      }
     },
     {
       "id": "20_original",
@@ -120,7 +188,41 @@
       "wide_including_beach_slow_cell_fraction": 0.21394230769230768,
       "narrow_median_m_s": 0.6104052000165896,
       "beach_median_m_s": 0.2113498916124368,
-      "reverse_cell_fraction": 0.0
+      "reverse_cell_fraction": 0.0,
+      "separated_volume_regions": {
+        "wide_passage_away": {
+          "cells": 528,
+          "volume_m3": 921.8757807443999,
+          "median_m_s": 0.17478534796446765,
+          "p95_m_s": 0.2782096994151595,
+          "volume_fraction_below_0_15": 0.13143920839872447,
+          "volume_fraction_reverse_below_minus_0_02": 0.0
+        },
+        "narrow_passage_away": {
+          "cells": 788,
+          "volume_m3": 1278.7338502443,
+          "median_m_s": 0.6186929822473277,
+          "p95_m_s": 0.8519073525537122,
+          "volume_fraction_below_0_15": 0.004844693396375201,
+          "volume_fraction_reverse_below_minus_0_02": 0.0
+        },
+        "main_beach_away": {
+          "cells": 1200,
+          "volume_m3": 1983.9491245290596,
+          "median_m_s": 0.22918363596716781,
+          "p95_m_s": 0.5023768976212584,
+          "volume_fraction_below_0_15": 0.22276077079895235,
+          "volume_fraction_reverse_below_minus_0_02": 0.0
+        },
+        "all_passage_away": {
+          "cells": 1784,
+          "volume_m3": 2997.457974024912,
+          "median_m_s": 0.3151787725543963,
+          "p95_m_s": 0.8046737086244679,
+          "volume_fraction_below_0_15": 0.04755554024038346,
+          "volume_fraction_reverse_below_minus_0_02": 0.0
+        }
+      }
     },
     {
       "id": "21_added_downstream",
@@ -130,9 +232,45 @@
       "wide_including_beach_slow_cell_fraction": 0.23076923076923078,
       "narrow_median_m_s": 0.6179297768009978,
       "beach_median_m_s": 0.21281463692924368,
-      "reverse_cell_fraction": 0.0
+      "reverse_cell_fraction": 0.0,
+      "separated_volume_regions": {
+        "wide_passage_away": {
+          "cells": 528,
+          "volume_m3": 921.8757807443999,
+          "median_m_s": 0.17796179294061287,
+          "p95_m_s": 0.28066122521818193,
+          "volume_fraction_below_0_15": 0.15400612450883341,
+          "volume_fraction_reverse_below_minus_0_02": 0.0
+        },
+        "narrow_passage_away": {
+          "cells": 788,
+          "volume_m3": 1278.7338502443,
+          "median_m_s": 0.6263692605227955,
+          "p95_m_s": 0.8625558970084308,
+          "volume_fraction_below_0_15": 0.004844693396375201,
+          "volume_fraction_reverse_below_minus_0_02": 0.0
+        },
+        "main_beach_away": {
+          "cells": 1200,
+          "volume_m3": 1983.9491245290596,
+          "median_m_s": 0.23079689391425573,
+          "p95_m_s": 0.5086045652030028,
+          "volume_fraction_below_0_15": 0.22276077079895235,
+          "volume_fraction_reverse_below_minus_0_02": 0.0
+        },
+        "all_passage_away": {
+          "cells": 1784,
+          "volume_m3": 2997.457974024912,
+          "median_m_s": 0.3242706841735475,
+          "p95_m_s": 0.8146484776009282,
+          "volume_fraction_below_0_15": 0.054496052363749485,
+          "volume_fraction_reverse_below_minus_0_02": 0.0
+        }
+      }
     }
   ],
   "limitations": "ensayo CFD no calibrado; siete puertos agregados, sin tiempo cronometrado de pasajeros ni validación de seguridad",
-  "dxf_hash_rule": "SHA-256 tras normalizar saltos CRLF a LF; la geometría DXF no se modifica"
+  "dxf_hash_rule": "SHA-256 tras normalizar saltos CRLF a LF; la geometría DXF no se modifica",
+  "region_comparison_rule": "same cells for all cases; exclude 6 m around union of tested jets",
+  "region_source_study": "experiments/nya_cfd_local/saved_count_regions_1200s.json"
 }

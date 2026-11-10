@@ -2558,11 +2558,20 @@ def main():
         original_snapshot = load_original_snapshot(original_dxf_sha)
         if original_snapshot is not None:
             st.markdown("**Conclusión provisional · DXF original**")
+            cases_by_count = {case["pumps"]: case for case in original_snapshot["cases"]}
+            def slow_passage_pct(count):
+                region = cases_by_count[count]["separated_volume_regions"]["wide_passage_away"]
+                return f"{100 * region['volume_fraction_below_0_15']:.1f}".replace(".", ",")
+            reference_lap = f"{cases_by_count[20]['projected_lap_min']:.1f}".replace(".", ",")
             st.info("Entre las cantidades ensayadas, 20 CF104 fue el compromiso menos "
-                    "desfavorable para mantener avance en zonas anchas. Su campo guardado "
-                    "proyecta 24,5 min de vuelta hidráulica, por debajo de la intención "
-                    "de 30–40 min; los pasos angostos siguen rápidos. Es una comparación "
-                    "teórica, no tiempo de personas ni cantidad aprobada para compra.")
+                    f"desfavorable: {slow_passage_pct(20)} % del volumen de las bahías "
+                    f"de paso queda bajo 0,15 m/s, frente a {slow_passage_pct(19)} % "
+                    f"con 19, {slow_passage_pct(16)} % con 16 y "
+                    f"{slow_passage_pct(21)} % con 21. Su campo guardado proyecta "
+                    f"{reference_lap} min de vuelta "
+                    "hidráulica, por debajo de la intención de 30–40 min; los pasos "
+                    "angostos siguen rápidos. Es una comparación teórica, no tiempo "
+                    "de personas ni cantidad aprobada para compra.")
             original_incompatible = []
             if abs(plan.length_m - original_snapshot["length_m"]) > .1:
                 original_incompatible.append("escala/longitud")
@@ -2600,13 +2609,14 @@ def main():
                 st.caption("Mismo DXF de 536 m, profundidad 1,20 m, Manning piso 0,013 / "
                            "pared 0,025, 2.014 US gpm por CF104, 4.056 celdas y 1.200 s "
                            "físicos. La vuelta supone constante el campo final y no mide "
-                           "personas. La columna de ancho cuenta celdas, incluye playa y "
-                           "no debe interpretarse como volumen lento de bahías de paso. "
+                           "personas. Bahías de paso y playa se analizan por separado; "
+                           "los porcentajes son volumen de malla a más de 6 m de todas "
+                           "las descargas ensayadas, no porcentaje de caudal o usuarios. "
+                           "0,15 m/s es un umbral de diagnóstico, no norma de seguridad. "
                            "El caso de 16 aún variaba en turbulencia al final del ensayo.")
-                st.warning("Control posterior, sin nueva corrida: al separar la playa y "
-                           "ponderar por volumen, reducir 20 % el caudal de tres bombas "
-                           "angostas elevó el volumen lento de las bahías de paso de "
-                           "12,3 % a 29,8 %. Esa variante se descarta.")
+                st.caption("Otro ensayo, con una máscara distinta pero la misma malla, "
+                           "redujo 20 % el caudal de tres bombas angostas: el volumen lento "
+                           "en bahías pasó de 12,3 % a 29,8 %. Se descartó esa variante.")
         fixed_comparison = load_fixed_comparison(dxf_sha)
         if fixed_comparison is not None:
             st.markdown("**Conclusión provisional · DXF ampliado**")
