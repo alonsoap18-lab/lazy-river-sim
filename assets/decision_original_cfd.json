@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "source_dxf_sha256": "4d3a426ae2fb0acffd4b4d0a6d10cc936e94ba83d04fef7a21bfe5e4082bb5f0",
+  "source_dxf_sha256": "1efc2aebbb8b90f3e8d1a8b202552c92422d46b102b587425f4a1d2eeab0d373",
   "source_study": "experiments/nya_cfd_local/extended_16_19_20_21_comparison.json",
   "length_m": 536.0,
   "depth_m": 1.2,
@@ -133,5 +133,6 @@
       "reverse_cell_fraction": 0.0
     }
   ],
-  "limitations": "ensayo CFD no calibrado; siete puertos agregados, sin tiempo cronometrado de pasajeros ni validación de seguridad"
+  "limitations": "ensayo CFD no calibrado; siete puertos agregados, sin tiempo cronometrado de pasajeros ni validación de seguridad",
+  "dxf_hash_rule": "SHA-256 tras normalizar saltos CRLF a LF; la geometría DXF no se modifica"
 }

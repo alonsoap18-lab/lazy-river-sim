@@ -2552,7 +2552,10 @@ def main():
                    "El Q equivalente de vuelta no es la suma de caudales CF104. "
                    "La capacidad de tratamiento no se confirma sin punto bomba–planta y filtros.")
         dxf_sha = hashlib.sha256(source_bytes).hexdigest()
-        original_snapshot = load_original_snapshot(dxf_sha)
+        # Git can checkout the text DXF with CRLF on Windows and LF in Cloud.
+        # Normalize only the identity check; keep the actual geometry bytes intact.
+        original_dxf_sha = hashlib.sha256(source_bytes.replace(b"\r\n", b"\n")).hexdigest()
+        original_snapshot = load_original_snapshot(original_dxf_sha)
         if original_snapshot is not None:
             st.markdown("**Conclusión provisional · DXF original**")
             st.info("Entre las cantidades ensayadas, 20 CF104 fue el compromiso menos "
