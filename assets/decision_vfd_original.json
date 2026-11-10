@@ -1,0 +1,60 @@
+{
+  "schema": 1,
+  "source_dxf_sha256": "1efc2aebbb8b90f3e8d1a8b202552c92422d46b102b587425f4a1d2eeab0d373",
+  "source_comparison": "experiments/nya_cfd_local/individual_vfd_comparison.json",
+  "mesh_cells": 4056,
+  "physical_time_s": 1200,
+  "mask_rule": "exclude 6 m around union of jets; beach separate; volume-weighted",
+  "reference_flow_m3_h_per_pump": 457.42915997856,
+  "status": "uncalibrated VFD affinity + prescribed-flow CFD screening",
+  "cases": [
+    {
+      "id": "qa_original_reference20_dt05",
+      "label": "20 × 100 %",
+      "rf17_vfd_pct": 100,
+      "rf17_cfd_flow_m3_h": 457.42915997856,
+      "projected_hydraulic_lap_min": 24.53041522351025,
+      "wide_passage_slow_volume_fraction": 0.12260969101630788,
+      "narrow_passage_p95_m_s": 0.8513149828260965,
+      "beach_median_m_s": 0.22901134425799194,
+      "reverse_volume_fraction": 0.0,
+      "max_courant_observed": 0.084009385
+    },
+    {
+      "id": "qa_vfd_rf17_80_dt05",
+      "label": "RF-17 al 80 % · otras 19 al 100 %",
+      "rf17_vfd_pct": 80,
+      "rf17_cfd_flow_m3_h": 365.7324268263035,
+      "projected_hydraulic_lap_min": 24.895278467092282,
+      "wide_passage_slow_volume_fraction": 0.20720050435945664,
+      "narrow_passage_p95_m_s": 0.8385604203372589,
+      "beach_median_m_s": 0.2268631698097701,
+      "reverse_volume_fraction": 0.0,
+      "max_courant_observed": 0.082716337
+    },
+    {
+      "id": "qa_vfd_rf17_60_dt05",
+      "label": "RF-17 al 60 % · otras 19 al 100 %",
+      "rf17_vfd_pct": 60,
+      "rf17_cfd_flow_m3_h": 274.0804103023381,
+      "projected_hydraulic_lap_min": 25.181038554159862,
+      "wide_passage_slow_volume_fraction": 0.23433098434088281,
+      "narrow_passage_p95_m_s": 0.8285060781124054,
+      "beach_median_m_s": 0.22532703509854285,
+      "reverse_volume_fraction": 0.0,
+      "max_courant_observed": 0.081721653
+    },
+    {
+      "id": "qa_original_narrow3_q80_consistent_dt05",
+      "label": "RF-16, 17 y 18 al 80 %",
+      "rf17_vfd_pct": 80,
+      "rf17_cfd_flow_m3_h": 365.943327982848,
+      "projected_hydraulic_lap_min": 25.69756054937616,
+      "wide_passage_slow_volume_fraction": 0.2979685883317895,
+      "narrow_passage_p95_m_s": 0.811776163148203,
+      "beach_median_m_s": 0.22265554697088172,
+      "reverse_volume_fraction": 0.0,
+      "max_courant_observed": 0.080235872
+    }
+  ]
+}

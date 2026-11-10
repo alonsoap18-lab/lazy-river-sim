@@ -30,6 +30,7 @@ from core.riverflow_decision_gate import (comparison_rows as fixed_cfd_compariso
 from core.riverflow_decision_snapshot import (load_original_snapshot,
                                              original_snapshot_rows,
                                              reference_layout_matches)
+from core.riverflow_vfd_archive import load_vfd_archive, vfd_archive_rows
 from core.riverflow_momentum_pilot import compute_momentum_pilot
 from core.riverflow_momentum_bound import compute_momentum_bound
 from core.riverflow_nozzle_screen import count_sensitivity, screen_lap_band
@@ -2617,6 +2618,39 @@ def main():
                 st.caption("Otro ensayo, con una máscara distinta pero la misma malla, "
                            "redujo 20 % el caudal de tres bombas angostas: el volumen lento "
                            "en bahías pasó de 12,3 % a 29,8 %. Se descartó esa variante.")
+            vfd_archive = load_vfd_archive(original_dxf_sha)
+            if vfd_archive is not None:
+                with st.expander("VFD por bomba · comparar corridas guardadas"):
+                    vfd_cases = {case["label"]: case for case in vfd_archive["cases"]}
+                    selected_vfd = st.selectbox(
+                        "Configuración de VFD ensayada", list(vfd_cases),
+                        key="rf_saved_individual_vfd_case")
+                    vfd_case = vfd_cases[selected_vfd]
+                    vfd_columns = st.columns(4)
+                    vfd_columns[0].metric("VFD RF-17",
+                                          f"{vfd_case['rf17_vfd_pct']} %")
+                    vfd_columns[1].metric("Q impuesto RF-17 en CFD",
+                                          f"{vfd_case['rf17_cfd_flow_m3_h']:.0f} m³/h")
+                    vfd_columns[2].metric("Vuelta hidráulica proyectada",
+                                          (f"{vfd_case['projected_hydraulic_lap_min']:.2f} min"
+                                           if vfd_case["projected_hydraulic_lap_min"] is not None
+                                           else "Sin avance continuo"))
+                    vfd_columns[3].metric("Bahías de paso lentas",
+                                          f"{100 * vfd_case['wide_passage_slow_volume_fraction']:.1f} %")
+                    st.dataframe(vfd_archive_rows(vfd_archive), hide_index=True,
+                                 width="stretch")
+                    st.caption("Los casos usan 20 CF104, el mismo DXF, 4.056 celdas, "
+                               "Manning piso 0,013 / paredes 0,025 y 1.200 s físicos. "
+                               "El caudal RF-17 a RPM parcial se estimó con afinidad y "
+                               "un circuito NYA supuesto, y se aplicó al caudal CFD "
+                               "documental de 2.014 US gpm a plena velocidad; Riverflow "
+                               "no entregó la curva a RPM reducidas. El caso de tres "
+                               "bombas usa 80 % directo del caudal documental. Solo estas "
+                               "configuraciones tienen "
+                               "campo CFD guardado. La vuelta supone estable el campo "
+                               "final; no es el recorrido de una persona. Bahías lentas "
+                               "= volumen de malla bajo 0,15 m/s fuera de playa y "
+                               "descargas; no es un límite de seguridad.")
         fixed_comparison = load_fixed_comparison(dxf_sha)
         if fixed_comparison is not None:
             st.markdown("**Conclusión provisional · DXF ampliado**")
