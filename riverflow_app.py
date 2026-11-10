@@ -27,6 +27,9 @@ from core.riverflow_decision import (consistency_checks, evaluate_count_options,
                                      evaluate_decision_cases)
 from core.riverflow_decision_gate import (comparison_rows as fixed_cfd_comparison_rows,
                                           load_fixed_comparison, matching_layout_cases)
+from core.riverflow_decision_snapshot import (load_original_snapshot,
+                                             original_snapshot_rows,
+                                             reference_layout_matches)
 from core.riverflow_momentum_pilot import compute_momentum_pilot
 from core.riverflow_momentum_bound import compute_momentum_bound
 from core.riverflow_nozzle_screen import count_sensitivity, screen_lap_band
@@ -2548,18 +2551,76 @@ def main():
         st.caption("Volumen y Q de filtración cambian con el DXF y los controles. "
                    "El Q equivalente de vuelta no es la suma de caudales CF104. "
                    "La capacidad de tratamiento no se confirma sin punto bomba–planta y filtros.")
-        fixed_comparison = load_fixed_comparison(hashlib.sha256(source_bytes).hexdigest())
+        dxf_sha = hashlib.sha256(source_bytes).hexdigest()
+        original_snapshot = load_original_snapshot(dxf_sha)
+        if original_snapshot is not None:
+            st.markdown("**Conclusión provisional · DXF original**")
+            st.info("Entre las cantidades ensayadas, 20 CF104 fue el compromiso menos "
+                    "desfavorable para mantener avance en zonas anchas. Su campo guardado "
+                    "proyecta 24,5 min de vuelta hidráulica, por debajo de la intención "
+                    "de 30–40 min; los pasos angostos siguen rápidos. Es una comparación "
+                    "teórica, no tiempo de personas ni cantidad aprobada para compra.")
+            original_incompatible = []
+            if abs(plan.length_m - original_snapshot["length_m"]) > .1:
+                original_incompatible.append("escala/longitud")
+            if abs(depth_m - original_snapshot["depth_m"]) > .001:
+                original_incompatible.append("profundidad")
+            if (abs(floor_n - original_snapshot["floor_manning_n"]) > .0001 or
+                    abs(wall_n_current - original_snapshot["wall_manning_n"]) > .0001 or
+                    abs(wall_n_calm - original_snapshot["wall_manning_n"]) > .0001):
+                original_incompatible.append("Manning")
+            original_flow = original_snapshot["reference_flow_gpm_per_pump"] * US_GPM_TO_M3_H
+            if (active_modules != 20 or
+                    len(plan.module_flows_full_speed_m3_h) != 20):
+                original_incompatible.append("cantidad de bombas")
+            elif any(abs(flow * plan.speed_fraction - original_flow) > .05 * original_flow
+                     for flow in plan.module_flows_full_speed_m3_h):
+                original_incompatible.append("caudal por bomba")
+            if not reference_layout_matches(original_snapshot, plan.module_chainages_m,
+                                            plan.module_banks):
+                original_incompatible.append("posiciones/orillas de la referencia de 20")
+            if nozzle_type != "7 puertos" or any(abs(a) > 1 for a in plan.module_angles_deg):
+                original_incompatible.append("tipo o dirección de descarga")
+            if (not use_beach_profile or abs(beach_ramp_pct - 6.5) > .01 or
+                    beach_first_share != 62 or abs(calm_width_m - 15) > .01):
+                original_incompatible.append("perfil de playa")
+            if original_incompatible:
+                st.warning("La corrida guardada no representa los controles actuales: " +
+                           ", ".join(original_incompatible) + ". OpenFOAM no se recalcula "
+                           "al mover estos controles.")
+            else:
+                st.caption("Los controles coinciden aproximadamente con la referencia "
+                           "guardada de 20 bombas; esto no valida su física.")
+            with st.expander("Comparar 16, 19, 20 y 21 bombas · ensayos guardados"):
+                st.dataframe(original_snapshot_rows(original_snapshot), hide_index=True,
+                             width="stretch")
+                st.caption("Mismo DXF de 536 m, profundidad 1,20 m, Manning piso 0,013 / "
+                           "pared 0,025, 2.014 US gpm por CF104, 4.056 celdas y 1.200 s "
+                           "físicos. La vuelta supone constante el campo final y no mide "
+                           "personas. La columna de ancho cuenta celdas, incluye playa y "
+                           "no debe interpretarse como volumen lento de bahías de paso. "
+                           "El caso de 16 aún variaba en turbulencia al final del ensayo.")
+                st.warning("Control posterior, sin nueva corrida: al separar la playa y "
+                           "ponderar por volumen, reducir 20 % el caudal de tres bombas "
+                           "angostas elevó el volumen lento de las bahías de paso de "
+                           "12,3 % a 29,8 %. Esa variante se descarta.")
+        fixed_comparison = load_fixed_comparison(dxf_sha)
         if fixed_comparison is not None:
-            st.markdown("**Tres distribuciones CFD guardadas · mismo DXF, malla y caudal**")
-            st.dataframe(fixed_cfd_comparison_rows(fixed_comparison), hide_index=True,
-                         width="stretch")
-            st.caption("Cada ensayo usa el archivo DXF escalado a 536 m, "
-                       "1,20 m de profundidad, Manning piso 0,013 / paredes 0,025, "
-                       "20 CF104 a 2.014 US gpm (457,4 m³/h) por unidad, "
-                       "5.352 celdas y 1.200 s físicos. "
-                       "La tercera fila cambia solo RF-06 de 164 a 138 m. "
-                       "Retorno = velocidad longitudinal menor de −0,02 m/s; "
-                       "el porcentaje corresponde a celdas de esta malla.")
+            st.markdown("**Conclusión provisional · DXF ampliado**")
+            st.error("La referencia de 20 CF104 deja 18,0 % de celdas en retorno "
+                     "y tres tramos de 10 m con retroceso a 1.200 s. Este diseño "
+                     "todavía no permite proyectar una vuelta continua ni recomendar "
+                     "cantidad de compra.")
+            with st.expander("Comparar tres distribuciones CFD guardadas"):
+                st.dataframe(fixed_cfd_comparison_rows(fixed_comparison), hide_index=True,
+                             width="stretch")
+                st.caption("Cada ensayo usa el archivo DXF escalado a 536 m, "
+                           "1,20 m de profundidad, Manning piso 0,013 / paredes 0,025, "
+                           "20 CF104 a 2.014 US gpm (457,4 m³/h) por unidad, "
+                           "5.352 celdas y 1.200 s físicos. "
+                           "La tercera fila cambia solo RF-06 de 164 a 138 m. "
+                           "Retorno = velocidad longitudinal menor de −0,02 m/s; "
+                           "el porcentaje corresponde a celdas de esta malla.")
             extension = fixed_comparison.get("extension_1800_s")
             if extension:
                 original = extension["reference20"]
@@ -2633,8 +2694,8 @@ def main():
                         "las tomas y salidas de los tramos 80–90, 140–150 y 420–430 m; "
                         "comprobar la dirección neta y repetir el mejor caso con malla "
                         "más fina. Después comparar cantidades con el mismo criterio.")
-        else:
-            st.info("No hay tres corridas comparables archivadas para estos bytes del DXF. "
+        elif original_snapshot is None:
+            st.info("No hay corridas CFD archivadas para estos bytes del DXF. "
                     "Los mapas 2D editables son exploratorios; no sustituyen una "
                     "comparación CFD de ubicaciones y cantidades.")
         st.info("Para comparar equipos, primero se calcula el caudal de CADA circuito local "

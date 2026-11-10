@@ -1,0 +1,137 @@
+{
+  "schema": 1,
+  "source_dxf_sha256": "4d3a426ae2fb0acffd4b4d0a6d10cc936e94ba83d04fef7a21bfe5e4082bb5f0",
+  "source_study": "experiments/nya_cfd_local/extended_16_19_20_21_comparison.json",
+  "length_m": 536.0,
+  "depth_m": 1.2,
+  "floor_manning_n": 0.013,
+  "wall_manning_n": 0.025,
+  "reference_flow_gpm_per_pump": 2014.0,
+  "mesh_cells": 4056,
+  "physical_time_s": 1200,
+  "reference20_layout": [
+    {
+      "chainage_m": 27.045466915305383,
+      "bank": "Exterior"
+    },
+    {
+      "chainage_m": 50.48898390508924,
+      "bank": "Exterior"
+    },
+    {
+      "chainage_m": 74.00184534061316,
+      "bank": "Interior"
+    },
+    {
+      "chainage_m": 109.83324458736183,
+      "bank": "Exterior"
+    },
+    {
+      "chainage_m": 145.56056929057587,
+      "bank": "Interior"
+    },
+    {
+      "chainage_m": 163.93645326784224,
+      "bank": "Exterior"
+    },
+    {
+      "chainage_m": 189.39343048429896,
+      "bank": "Exterior"
+    },
+    {
+      "chainage_m": 214.73057690489645,
+      "bank": "Interior"
+    },
+    {
+      "chainage_m": 224.57285842712122,
+      "bank": "Exterior"
+    },
+    {
+      "chainage_m": 246.98026741333092,
+      "bank": "Exterior"
+    },
+    {
+      "chainage_m": 269.9200851374041,
+      "bank": "Exterior"
+    },
+    {
+      "chainage_m": 293.2642796016853,
+      "bank": "Exterior"
+    },
+    {
+      "chainage_m": 316.10512226213706,
+      "bank": "Interior"
+    },
+    {
+      "chainage_m": 322.4899060382965,
+      "bank": "Exterior"
+    },
+    {
+      "chainage_m": 352.2449166714682,
+      "bank": "Exterior"
+    },
+    {
+      "chainage_m": 381.792174987775,
+      "bank": "Exterior"
+    },
+    {
+      "chainage_m": 406.1923997527826,
+      "bank": "Exterior"
+    },
+    {
+      "chainage_m": 430.1571833024914,
+      "bank": "Exterior"
+    },
+    {
+      "chainage_m": 463.4153123122034,
+      "bank": "Exterior"
+    },
+    {
+      "chainage_m": 497.1586016725204,
+      "bank": "Exterior"
+    }
+  ],
+  "cases": [
+    {
+      "id": "16_removed_four",
+      "label": "16 · quitar cuatro",
+      "pumps": 16,
+      "projected_lap_min": 28.876318949997426,
+      "wide_including_beach_slow_cell_fraction": 0.375,
+      "narrow_median_m_s": 0.5150189349918073,
+      "beach_median_m_s": 0.18972407738737315,
+      "reverse_cell_fraction": 0.0
+    },
+    {
+      "id": "19_removed",
+      "label": "19 · quitar una",
+      "pumps": 19,
+      "projected_lap_min": 25.58449896295606,
+      "wide_including_beach_slow_cell_fraction": 0.28846153846153844,
+      "narrow_median_m_s": 0.583318686158482,
+      "beach_median_m_s": 0.20656208714550306,
+      "reverse_cell_fraction": 0.0
+    },
+    {
+      "id": "20_original",
+      "label": "20 · referencia",
+      "pumps": 20,
+      "projected_lap_min": 24.503324199597195,
+      "wide_including_beach_slow_cell_fraction": 0.21394230769230768,
+      "narrow_median_m_s": 0.6104052000165896,
+      "beach_median_m_s": 0.2113498916124368,
+      "reverse_cell_fraction": 0.0
+    },
+    {
+      "id": "21_added_downstream",
+      "label": "21 · añadir una",
+      "pumps": 21,
+      "projected_lap_min": 24.216512998518375,
+      "wide_including_beach_slow_cell_fraction": 0.23076923076923078,
+      "narrow_median_m_s": 0.6179297768009978,
+      "beach_median_m_s": 0.21281463692924368,
+      "reverse_cell_fraction": 0.0
+    }
+  ],
+  "limitations": "ensayo CFD no calibrado; siete puertos agregados, sin tiempo cronometrado de pasajeros ni validación de seguridad"
+}
