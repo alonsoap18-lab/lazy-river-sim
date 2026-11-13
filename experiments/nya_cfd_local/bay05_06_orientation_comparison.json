@@ -1,0 +1,63 @@
+{
+  "status": "coarse-mesh orientation sensitivity, not a seven-port design recommendation",
+  "bay_chainage_m": [
+    135,
+    178
+  ],
+  "same_mesh_cells": 4056,
+  "mask_rule": "exclude 6 m around union of jets; split by centreline tangent",
+  "cases": {
+    "qa_original_reference20_dt05": {
+      "whole_bay": {
+        "cell_count": 424,
+        "volume_m3": 759.2501814756,
+        "median_m_s": 0.17928072762500866,
+        "p95_m_s": 0.3079637392939425,
+        "volume_fraction_below_0_15": 0.1403532486012644,
+        "volume_fraction_reverse_below_minus_0_02": 0.0
+      },
+      "left_half": {
+        "cell_count": 228,
+        "volume_m3": 414.9054238752,
+        "median_m_s": 0.1770036669290151,
+        "p95_m_s": 0.2429560116660404,
+        "volume_fraction_below_0_15": 0.19164446369618246,
+        "volume_fraction_reverse_below_minus_0_02": 0.0
+      },
+      "right_half": {
+        "cell_count": 196,
+        "volume_m3": 344.3447576004001,
+        "median_m_s": 0.18889630087779669,
+        "p95_m_s": 0.3282924015404805,
+        "volume_fraction_below_0_15": 0.07855180435007326,
+        "volume_fraction_reverse_below_minus_0_02": 0.0
+      }
+    },
+    "qa_bay05_06_inward15_dt05": {
+      "whole_bay": {
+        "cell_count": 424,
+        "volume_m3": 759.2501814756,
+        "median_m_s": 0.1755657790579682,
+        "p95_m_s": 0.3114851029780025,
+        "volume_fraction_below_0_15": 0.15680375952998837,
+        "volume_fraction_reverse_below_minus_0_02": 0.0
+      },
+      "left_half": {
+        "cell_count": 228,
+        "volume_m3": 414.9054238752,
+        "median_m_s": 0.171067120365068,
+        "p95_m_s": 0.2329284458141792,
+        "volume_fraction_below_0_15": 0.2417857542430558,
+        "volume_fraction_reverse_below_minus_0_02": 0.0
+      },
+      "right_half": {
+        "cell_count": 196,
+        "volume_m3": 344.3447576004001,
+        "median_m_s": 0.19123847629062424,
+        "p95_m_s": 0.32619906898577034,
+        "volume_fraction_below_0_15": 0.05440786193045928,
+        "volume_fraction_reverse_below_minus_0_02": 0.0
+      }
+    }
+  }
+}
