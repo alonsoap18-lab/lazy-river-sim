@@ -58,6 +58,7 @@ from core.riverflow_placement import (cumulative_manning_resistance,
                                       suggest_width_aware_positions)
 from core.sph_public_sheet import render_sph_sheet
 from core.riverflow_local_cfd_archive import render_local_cfd_archive
+from core.riverflow_supplier20_archive import render_supplier20_decision
 
 
 MODEL_VERSION = "riverflow-geometry-treatment-13-upload-scale-beach-audit"
@@ -2525,6 +2526,12 @@ def main():
 
     with tab_decision:
         st.subheader("Hoja de decisión · NYA / Riverflow")
+        supplier20_available = render_supplier20_decision(
+            source_bytes=source_bytes, depth_m=depth_m, floor_n=floor_n,
+            wall_n=wall_n_current, active_modules=active_modules,
+            speed_pct=speed_pct,
+            unit_flow_m3_h=plan.module_flow_full_speed_m3_h * plan.speed_fraction,
+            turnover_h=turnover_h)
         st.markdown("**Qué podemos decidir con el DXF activo**")
         shore_depth = (beach_geometry.beach_end_depth_at_widest_m
                        if beach_geometry is not None else None)
@@ -2558,7 +2565,8 @@ def main():
         original_dxf_sha = hashlib.sha256(source_bytes.replace(b"\r\n", b"\n")).hexdigest()
         original_snapshot = load_original_snapshot(original_dxf_sha)
         if original_snapshot is not None:
-            st.markdown("**Conclusión provisional · DXF original**")
+            st.markdown("**Archivo anterior · DXF original**" if supplier20_available
+                        else "**Conclusión provisional · DXF original**")
             cases_by_count = {case["pumps"]: case for case in original_snapshot["cases"]}
             def slow_passage_pct(count):
                 region = cases_by_count[count]["separated_volume_regions"]["wide_passage_away"]
@@ -2677,11 +2685,12 @@ def main():
                                "descargas; no es un límite de seguridad.")
         fixed_comparison = load_fixed_comparison(dxf_sha)
         if fixed_comparison is not None:
-            st.markdown("**Conclusión provisional · DXF ampliado**")
-            st.error("La referencia de 20 CF104 deja 18,0 % de celdas en retorno "
-                     "y tres tramos de 10 m con retroceso a 1.200 s. Este diseño "
-                     "todavía no permite proyectar una vuelta continua ni recomendar "
-                     "cantidad de compra.")
+            st.markdown("**Archivo anterior · DXF ampliado**" if supplier20_available
+                        else "**Conclusión provisional · DXF ampliado**")
+            st.warning("En la distribución de referencia anterior, 20 CF104 dejaron "
+                       "18,0 % de celdas en retorno y tres tramos con retroceso. "
+                       "El ensayo nuevo de reubicación aparece arriba y usa una "
+                       "distribución diferente; estos resultados no se sustituyen.")
             with st.expander("Comparar tres distribuciones CFD guardadas"):
                 st.dataframe(fixed_cfd_comparison_rows(fixed_comparison), hide_index=True,
                              width="stretch")
@@ -2756,15 +2765,11 @@ def main():
             st.caption("Las posiciones y orillas de cada fila son las de esa corrida; "
                        "seleccionar otra distribución automática en el menú tampoco "
                        "recalcula estos campos OpenFOAM.")
-            st.error("Ninguna de las tres distribuciones pasa la comprobación de "
-                     "continuidad: quedan al menos tres tramos de 10 m con mediana "
-                     "en retorno. La variante RF-06 es la menos desfavorable de estas "
-                     "tres corridas, pero aún no permite recomendar posiciones de obra "
-                     "ni una cantidad de compra.")
-            st.markdown("**Próxima prueba que puede cambiar la decisión**: resolver "
-                        "las tomas y salidas de los tramos 80–90, 140–150 y 420–430 m; "
-                        "comprobar la dirección neta y repetir el mejor caso con malla "
-                        "más fina. Después comparar cantidades con el mismo criterio.")
+            with st.expander("Conclusión histórica de estas tres distribuciones"):
+                st.caption("Las tres distribuciones de esta tabla conservaron retornos "
+                           "en al menos tres tramos de 10 m. Después se ensayó la "
+                           "reubicación mostrada arriba; no se debe extender esta "
+                           "conclusión histórica a ese caso nuevo.")
         elif original_snapshot is None:
             st.info("No hay corridas CFD archivadas para estos bytes del DXF. "
                     "Los mapas 2D editables son exploratorios; no sustituyen una "

@@ -1,0 +1,54 @@
+{
+  "schema": 1,
+  "original_sha": "4d3a426ae2fb0acffd4b4d0a6d10cc936e94ba83d04fef7a21bfe5e4082bb5f0",
+  "wide_sha": "47154b381560b10b58d2729f9e2ae79dc90ff1f24af8a7640d36a41b15f68060",
+  "original_volume_m3": 6721.362217727838,
+  "wide_volume_m3": 8096.695596298598,
+  "cases": {
+    "original_reference_100": {
+      "lap_min": 24.53041522351026,
+      "reverse_fraction": 0.0,
+      "wide_slow_fraction": 0.11733177296156279,
+      "narrow_p95_m_s": 0.8237411983388971,
+      "beach_median_m_s": 0.21673305207604598,
+      "unit_flow_m3_h": 457.42915998,
+      "negative_10m_sections": 0
+    },
+    "original_zonal": {
+      "lap_min": 34.0218170586151,
+      "reverse_fraction": 0.0,
+      "wide_slow_fraction": 0.7247013317831498,
+      "narrow_p95_m_s": 0.5989398093975119,
+      "beach_median_m_s": 0.16186428779437018,
+      "unit_flow_m3_h": 353.141654482062,
+      "negative_10m_sections": 0
+    },
+    "wide_reference_100": {
+      "lap_min": null,
+      "reverse_fraction": 0.17297177583356627,
+      "wide_slow_fraction": 0.6129936880867509,
+      "narrow_p95_m_s": 0.24833745862952356,
+      "beach_median_m_s": 0.050101763192430995,
+      "unit_flow_m3_h": 457.42915998,
+      "negative_10m_sections": 3
+    },
+    "wide_relocated_100": {
+      "lap_min": 21.294197061229845,
+      "reverse_fraction": 0.013325470088726435,
+      "wide_slow_fraction": 0.06454917961868349,
+      "narrow_p95_m_s": 0.7450742975986754,
+      "beach_median_m_s": 0.28401933820578323,
+      "unit_flow_m3_h": 457.42915998,
+      "negative_10m_sections": 0
+    },
+    "wide_relocated_70": {
+      "lap_min": 30.46922993825051,
+      "reverse_fraction": 0.01273288364763639,
+      "wide_slow_fraction": 0.1218564408177042,
+      "narrow_p95_m_s": 0.5178392390184439,
+      "beach_median_m_s": 0.1973546050809416,
+      "unit_flow_m3_h": 319.89986685648,
+      "negative_10m_sections": 0
+    }
+  }
+}

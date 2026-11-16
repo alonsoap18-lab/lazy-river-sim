@@ -1,0 +1,21 @@
+﻿id_plano,progresiva_m_aproximada,margen_hipotesis,ancho_dxf_m,caudal_100_m3h,caudal_70_m3h,origen
+20,25.0,Exterior,15.7,457.4,319.0,progresiva aproximada de imagen; margen y angulo supuestos
+19,55.0,Exterior,8.3,457.4,319.0,progresiva aproximada de imagen; margen y angulo supuestos
+18,80.0,Interior,12.1,457.4,319.0,progresiva aproximada de imagen; margen y angulo supuestos
+17,125.0,Exterior,8.8,457.4,319.0,progresiva aproximada de imagen; margen y angulo supuestos
+16,155.0,Interior,19.0,457.4,319.0,progresiva aproximada de imagen; margen y angulo supuestos
+2,155.0,Exterior,19.0,457.4,319.0,ajuste propio a zona ancha; no indicado por Riverflow
+15,175.0,Exterior,13.7,457.4,319.0,progresiva aproximada de imagen; margen y angulo supuestos
+14,190.0,Exterior,11.6,457.4,319.0,progresiva aproximada de imagen; margen y angulo supuestos
+13,210.0,Interior,18.4,457.4,319.0,progresiva aproximada de imagen; margen y angulo supuestos
+11,225.0,Exterior,16.0,457.4,319.0,progresiva aproximada de imagen; margen y angulo supuestos
+12,240.0,Exterior,7.2,457.4,319.0,progresiva aproximada de imagen; margen y angulo supuestos
+9,265.0,Exterior,6.1,457.4,319.0,progresiva aproximada de imagen; margen y angulo supuestos
+10,275.0,Exterior,8.5,457.4,319.0,progresiva aproximada de imagen; margen y angulo supuestos
+8,320.0,Interior,15.2,457.4,319.0,progresiva aproximada de imagen; margen y angulo supuestos
+7,335.0,Exterior,10.3,457.4,319.0,progresiva aproximada de imagen; margen y angulo supuestos
+6,365.0,Exterior,10.1,457.4,319.0,progresiva aproximada de imagen; margen y angulo supuestos
+5,375.0,Exterior,11.2,457.4,319.0,progresiva aproximada de imagen; margen y angulo supuestos
+4,425.0,Exterior,10.5,457.4,319.0,progresiva aproximada de imagen; margen y angulo supuestos
+3,485.0,Exterior,12.1,457.4,319.0,progresiva aproximada de imagen; margen y angulo supuestos
+1,515.0,Exterior,23.0,457.4,319.0,progresiva aproximada de imagen; margen y angulo supuestos
