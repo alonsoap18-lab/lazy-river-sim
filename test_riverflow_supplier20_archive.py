@@ -5,12 +5,14 @@ from hashlib import sha256
 from streamlit.testing.v1 import AppTest
 
 from core.riverflow_supplier20_archive import (
-    WIDE_SHA, archived_wide_layout, load_archive, wide_dxf_bytes,
+    WIDE_SHA, _canonical_wide_dxf, archived_wide_layout, load_archive,
+    wide_dxf_bytes,
 )
 
 
 def test_archived_source_and_paired_layout():
     assert sha256(wide_dxf_bytes()).hexdigest() == WIDE_SHA
+    assert _canonical_wide_dxf(wide_dxf_bytes().replace(b"\r\n", b"\n")) == wide_dxf_bytes()
     positions, banks = archived_wide_layout()
     assert len(positions) == len(banks) == 20
     assert positions.count(155.0) == 2

@@ -16,14 +16,24 @@ ROOT = Path(__file__).resolve().parents[1]
 ARCHIVE = ROOT / "assets" / "cfd_supplier20"
 ORIGINAL_SHA = "4d3a426ae2fb0acffd4b4d0a6d10cc936e94ba83d04fef7a21bfe5e4082bb5f0"
 WIDE_SHA = "47154b381560b10b58d2729f9e2ae79dc90ff1f24af8a7640d36a41b15f68060"
+WIDE_LF_SHA = "f1995775dbf951697d994d89fd42f0576e0f2ce719ad45adc018f63bc6e369f0"
+
+
+def _canonical_wide_dxf(source: bytes) -> bytes:
+    """Restore the archived CRLF bytes if Git normalized the DXF on checkout."""
+    source_sha = hashlib.sha256(source).hexdigest()
+    if source_sha == WIDE_SHA:
+        return source
+    if source_sha == WIDE_LF_SHA:
+        restored = source.replace(b"\n", b"\r\n")
+        if hashlib.sha256(restored).hexdigest() == WIDE_SHA:
+            return restored
+    raise ValueError("El DXF ampliado no coincide con el ensayo CFD archivado.")
 
 
 def wide_dxf_bytes() -> bytes:
     """Return the exact widened DXF used by the archived CFD case."""
-    source = (ARCHIVE / "wide_source.dxf").read_bytes()
-    if hashlib.sha256(source).hexdigest() != WIDE_SHA:
-        raise ValueError("El DXF ampliado no coincide con el ensayo CFD archivado.")
-    return source
+    return _canonical_wide_dxf((ARCHIVE / "wide_source.dxf").read_bytes())
 
 
 def archived_wide_layout() -> tuple[tuple[float, ...], tuple[str, ...]]:
