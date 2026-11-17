@@ -73,3 +73,37 @@ def test_app_band_reacts_to_manning_not_legacy_two_percent():
     app.run()
     assert not app.exception
     assert not band().equals(initial)
+
+
+def test_decision_sheet_links_target_and_local_pump_flows():
+    app = AppTest.from_file("app.py", default_timeout=90).run()
+    assert not app.exception
+
+    def table_with(column):
+        return next(table.value.copy() for table in app.dataframe
+                    if column in table.value.columns)
+
+    local = table_with("Q local calculado (m³/h)")
+    assert len(local) == int(next(metric for metric in app.metric
+                                  if metric.label == "CF104 activas").value)
+    assert abs(local["Q local calculado (m³/h)"].sum() - float(
+        next(metric for metric in app.metric
+             if metric.label == "Q local total · bombas").value.split()[0].replace(",", ""))) < 2
+    assert "35 min" in table_with("Vuelta objetivo")["Vuelta objetivo"].tolist()
+
+    next(widget for widget in app.radio
+         if widget.label == "Escenario de trabajo").set_value(
+             "Exploración editable · DXF original o propio")
+    app.run()
+    assert not app.exception
+    next(widget for widget in app.number_input
+         if widget.label == "Objetivo de tiempo por vuelta (min)").set_value(37.0)
+    app.run()
+    assert not app.exception
+    assert "37 min" in table_with("Vuelta objetivo")["Vuelta objetivo"].tolist()
+
+    next(widget for widget in app.number_input
+         if widget.label == "Unidades activas").set_value(20)
+    app.run()
+    assert not app.exception
+    assert len(table_with("Q local calculado (m³/h)")) == 20

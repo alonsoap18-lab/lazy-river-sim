@@ -14,6 +14,9 @@ import numpy as np
 from scipy.sparse import lil_matrix
 from scipy.sparse.linalg import spsolve
 
+from core.riverflow_jet_momentum import (NOZZLE_12X7_OPEN_AREA_M2,
+                                        WATER_DENSITY_KG_M3)
+
 
 @dataclass(frozen=True)
 class MomentumPilot:
@@ -27,6 +30,8 @@ class MomentumPilot:
     lane_lap_min: tuple[float, float, float]
     flow_residual_fraction: float
     momentum_residual_m_s2: float
+    applied_nozzle_thrust_n: float = 0.0
+    nozzle_exit_speed_m_s: tuple[float, ...] = ()
 
 
 def compute_momentum_pilot(stations: Sequence[dict], plan, depth_m: float,
@@ -34,6 +39,9 @@ def compute_momentum_pilot(stations: Sequence[dict], plan, depth_m: float,
                            beach_bank: str = "Exterior", eddy_viscosity_m2_s: float = 0.08,
                            jet_acceleration_m_s2: float = 0.002,
                            jet_spread_m: float = 12.0,
+                           nozzle_transfer_fraction: float | None = None,
+                           nozzle_open_area_m2: float = NOZZLE_12X7_OPEN_AREA_M2,
+                           lateral_jet_spread_m: float = 2.0,
                            beach_first_share: float = 1 / 3,
                            longitudinal_cells: int = 96,
                            lateral_cells: int = 13) -> MomentumPilot:
@@ -45,6 +53,9 @@ def compute_momentum_pilot(stations: Sequence[dict], plan, depth_m: float,
     """
     if (depth_m <= 0 or scale_m_per_unit <= 0 or eddy_viscosity_m2_s <= 0 or
             jet_acceleration_m_s2 < 0 or jet_spread_m <= 0 or
+            (nozzle_transfer_fraction is not None and
+             not 0 < nozzle_transfer_fraction <= 1) or
+            nozzle_open_area_m2 <= 0 or lateral_jet_spread_m <= 0 or
             longitudinal_cells < 32 or lateral_cells < 5 or
             beach_bank not in ("Interior", "Exterior") or
             not 0 < beach_first_share < 1):
@@ -109,13 +120,40 @@ def compute_momentum_pilot(stations: Sequence[dict], plan, depth_m: float,
     drag = (2 * 9.81 * manning[:, None] ** 2 * base_u[:, None] /
             np.maximum(depths, 0.08) ** (4 / 3))
     source = np.zeros((ns, ny))
-    for position, angle, bank in zip(plan.module_chainages_m, plan.module_angles_deg,
-                                     plan.module_banks):
-        bank_eta = 0.85 if bank == "Exterior" else 0.15
-        distance = np.minimum(np.abs(s - position), length - np.abs(s - position))
-        along = np.exp(-0.5 * (distance / jet_spread_m) ** 2)
-        across = np.exp(-0.5 * ((eta - bank_eta) / 0.14) ** 2)
-        source += jet_acceleration_m_s2 * max(0.0, np.cos(np.deg2rad(angle))) * along[:, None] * across[None, :]
+    total_thrust = 0.0
+    outlet_speeds = []
+    for index, (position, angle, bank) in enumerate(zip(
+            plan.module_chainages_m, plan.module_angles_deg, plan.module_banks)):
+        bank_eta = 0.90 if bank == "Exterior" else 0.10
+        if nozzle_transfer_fraction is None:
+            # Legacy exploratory mode, retained for existing comparisons.
+            distance = np.minimum(np.abs(s - position), length - np.abs(s - position))
+            along = np.exp(-0.5 * (distance / jet_spread_m) ** 2)
+            across = np.exp(-0.5 * ((eta - bank_eta) / 0.14) ** 2)
+            source += (jet_acceleration_m_s2 * max(0.0, np.cos(np.deg2rad(angle)))
+                       * along[:, None] * across[None, :])
+            continue
+        # Directed jet momentum is based on Q and the documented aggregate
+        # seven-port open area. The transfer fraction and downstream mixing
+        # distances remain scenario assumptions, not Riverflow performance data.
+        module_q = (plan.module_flows_full_speed_m3_h[index] *
+                    plan.speed_fraction / 3600)
+        exit_speed = module_q / nozzle_open_area_m2
+        outlet_speeds.append(float(exit_speed))
+        force = (nozzle_transfer_fraction * WATER_DENSITY_KG_M3 * module_q *
+                 exit_speed * max(0.0, np.cos(np.deg2rad(angle))))
+        forward = np.mod(s - position, length)
+        along = np.exp(-forward / jet_spread_m)
+        lateral_distance = widths[:, None] * (eta[None, :] - bank_eta)
+        across = np.exp(-0.5 * (lateral_distance / lateral_jet_spread_m) ** 2)
+        shape = along[:, None] * across
+        # Integral of rho*a over wet cell volumes equals the assigned thrust.
+        cell_volume = weights * ds
+        normalization = float(np.sum(shape * cell_volume))
+        if normalization <= 0:
+            raise ValueError("La malla no representa el alcance del chorro elegido.")
+        source += (force / WATER_DENSITY_KG_M3) * shape / normalization
+        total_thrust += force
 
     # Unknowns are section/lane perturbations and one pressure correction per
     # section. The latter closes the flow constraint without silently changing Q.
@@ -154,4 +192,5 @@ def compute_momentum_pilot(stations: Sequence[dict], plan, depth_m: float,
         else:
             laps.append(float(np.sum(ds / velocity[:, lane]) / 60))
     return MomentumPilot(s, eta, x, y, depths, velocity, flow, tuple(laps),
-                         flow_residual, momentum_residual)
+                         flow_residual, momentum_residual, total_thrust,
+                         tuple(outlet_speeds))

@@ -18,6 +18,40 @@ ORIGINAL_SHA = "4d3a426ae2fb0acffd4b4d0a6d10cc936e94ba83d04fef7a21bfe5e4082bb5f0
 WIDE_SHA = "47154b381560b10b58d2729f9e2ae79dc90ff1f24af8a7640d36a41b15f68060"
 
 
+def wide_dxf_bytes() -> bytes:
+    """Return the exact widened DXF used by the archived CFD case."""
+    source = (ARCHIVE / "wide_source.dxf").read_bytes()
+    if hashlib.sha256(source).hexdigest() != WIDE_SHA:
+        raise ValueError("El DXF ampliado no coincide con el ensayo CFD archivado.")
+    return source
+
+
+def archived_wide_layout() -> tuple[tuple[float, ...], tuple[str, ...]]:
+    """Return positions and banks in route order, keeping the paired station."""
+    with (ARCHIVE / "locations.csv").open(encoding="utf-8-sig", newline="") as file:
+        rows = list(csv.DictReader(file))
+    if len(rows) != 20:
+        raise ValueError("El ensayo archivado requiere exactamente 20 estaciones.")
+    positions = tuple(float(row["progresiva_m_aproximada"]) for row in rows)
+    banks = tuple(row["margen_hipotesis"] for row in rows)
+    if any(bank not in ("Exterior", "Interior") for bank in banks):
+        raise ValueError("El archivo de posiciones contiene una margen desconocida.")
+    return positions, banks
+
+
+def render_archived_flow(*, key: str) -> None:
+    """Show the saved CFD fields without implying a live OpenFOAM rerun."""
+    view = st.radio("Campo OpenFOAM guardado", ["2D animado", "3D interactivo"],
+                    horizontal=True, key=key)
+    html_name = "flow_2d.html.gz" if view == "2D animado" else "flow_3d.html.gz"
+    with gzip.open(ARCHIVE / html_name, "rt", encoding="utf-8") as file:
+        components.html(file.read(), height=800, scrolling=True)
+    st.caption("Campo CFD archivado del DXF ampliado, 20 CF104 al 70 % hipotético. "
+               "Las orillas y bombas permanecen fijas; los puntos blancos son trazadores "
+               "visuales, no partículas resueltas ni trayectorias de visitantes. "
+               "El 3D requiere WebGL.")
+
+
 def load_archive() -> dict:
     data = json.loads((ARCHIVE / "summary.json").read_text(encoding="utf-8"))
     if data.get("schema") != 1 or data.get("original_sha") != ORIGINAL_SHA or data.get("wide_sha") != WIDE_SHA:
@@ -40,7 +74,9 @@ def _case_row(label: str, case: dict) -> dict:
 def render_supplier20_decision(*, source_bytes: bytes, depth_m: float,
                                floor_n: float, wall_n: float,
                                active_modules: int, speed_pct: float,
-                               unit_flow_m3_h: float, turnover_h: float) -> bool:
+                               unit_flow_m3_h: float, turnover_h: float,
+                               positions_m: tuple[float, ...] = (),
+                               banks: tuple[str, ...] = ()) -> bool:
     """Return whether the active DXF belongs to either completed comparison."""
     raw_sha = hashlib.sha256(source_bytes).hexdigest()
     normalized_sha = hashlib.sha256(source_bytes.replace(b"\r\n", b"\n")).hexdigest()
@@ -93,14 +129,20 @@ def render_supplier20_decision(*, source_bytes: bytes, depth_m: float,
         mismatches.append("VFD")
     if abs(unit_flow_m3_h - best["unit_flow_m3_h"]) > .05 * best["unit_flow_m3_h"]:
         mismatches.append("caudal por bomba")
+    archive_positions, archive_banks = archived_wide_layout()
+    layout_matches = (len(positions_m) == 20 and len(banks) == 20 and
+                      all(abs(a - b) < .1 for a, b in zip(positions_m, archive_positions))
+                      and banks == archive_banks)
+    if not layout_matches:
+        mismatches.append("posiciones/orillas")
     if mismatches:
         st.warning("El menú activo difiere de este ensayo en: " + ", ".join(mismatches) +
                    ". Cambiar controles no vuelve a ejecutar OpenFOAM; la tabla y las "
                    "animaciones conservan sus entradas archivadas.")
     else:
-        st.info("DXF, profundidad, Manning, cantidad, VFD y caudal unitario coinciden "
-                "aproximadamente con el ensayo. Compruebe aparte posiciones, orillas y "
-                "perfil de playa: la app no los aplica automáticamente a esta corrida.")
+        st.info("DXF, profundidad, Manning, cantidad, VFD, caudal unitario y "
+                "posiciones/orillas coinciden con el ensayo guardado. El perfil de playa "
+                "del modelo rápido y la malla CFD usan discretizaciones distintas.")
     if abs(turnover_h - 4) > .01:
         st.caption(f"El menú calcula filtración a {turnover_h:g} h; la cifra de la tarjeta "
                    "corresponde exclusivamente al ensayo de 4 h.")
@@ -108,16 +150,7 @@ def render_supplier20_decision(*, source_bytes: bytes, depth_m: float,
     with st.expander("Ver flujo del DXF ampliado · ensayo guardado", expanded=False):
         show_view = st.checkbox("Cargar visor interactivo", key="supplier20_load_view")
         if show_view:
-            view = st.radio("Vista", ["2D animado", "3D interactivo"], horizontal=True,
-                            key="supplier20_archive_view")
-            html_name = "flow_2d.html.gz" if view == "2D animado" else "flow_3d.html.gz"
-            with gzip.open(ARCHIVE / html_name, "rt", encoding="utf-8") as file:
-                html = file.read()
-            components.html(html,
-                            height=800, scrolling=True)
-            st.caption("Las orillas y las 20 bombas permanecen fijas al reproducir; cambia "
-                       "el campo de velocidad guardado. El 3D requiere WebGL. Los puntos "
-                       "blancos son trazadores visuales, no partículas resueltas ni visitantes.")
+            render_archived_flow(key="supplier20_archive_view")
     with st.expander("Ver las 20 posiciones provisionales", expanded=False):
         with (ARCHIVE / "locations.csv").open(encoding="utf-8-sig", newline="") as file:
             st.dataframe(list(csv.DictReader(file)), hide_index=True, width="stretch")

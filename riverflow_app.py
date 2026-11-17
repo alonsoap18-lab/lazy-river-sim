@@ -58,7 +58,10 @@ from core.riverflow_placement import (cumulative_manning_resistance,
                                       suggest_width_aware_positions)
 from core.sph_public_sheet import render_sph_sheet
 from core.riverflow_local_cfd_archive import render_local_cfd_archive
-from core.riverflow_supplier20_archive import render_supplier20_decision
+from core.riverflow_supplier20_archive import (archived_wide_layout, load_archive,
+                                               render_archived_flow,
+                                               render_supplier20_decision,
+                                               wide_dxf_bytes)
 
 
 MODEL_VERSION = "riverflow-geometry-treatment-13-upload-scale-beach-audit"
@@ -442,13 +445,29 @@ def main():
     st.caption("Fase 1 · recorrido antihorario · geometría DXF y dimensionamiento conceptual de propulsión, filtración e infraestructura")
 
     st.sidebar.header("Diseño NYA desde DXF")
-    uploaded = st.sidebar.file_uploader("Plano DXF (dos orillas cerradas)", type=["dxf"],
+    design_choice = st.sidebar.radio(
+        "Escenario de trabajo",
+        ["Ensayo archivado · ampliado · 20 CF104", "Exploración editable · DXF original o propio"],
+        help="El ensayo archivado carga el DXF exacto, las 20 posiciones y el VFD del caso "
+             "OpenFOAM guardado. La exploración permite cambiar el plano y los equipos.")
+    archived_case = design_choice.startswith("Ensayo archivado")
+    uploaded = (None if archived_case else st.sidebar.file_uploader(
+        "Plano DXF (dos orillas cerradas)", type=["dxf"],
         help="Preferiblemente dos polilíneas en PAREDES. También admite dos contornos "
-             "cerrados y anidados en una misma capa, incluso SPLINE; confirme la escala.")
-    uploaded_bytes = uploaded.getvalue() if uploaded else None
+             "cerrados y anidados en una misma capa, incluso SPLINE; confirme la escala."))
+    try:
+        uploaded_bytes = wide_dxf_bytes() if archived_case else (
+            uploaded.getvalue() if uploaded else None)
+    except (OSError, ValueError) as exc:
+        st.error(f"No se pudo cargar el ensayo archivado: {exc}")
+        st.stop()
     uploaded_id = hashlib.sha256(uploaded_bytes).hexdigest()[:12] if uploaded_bytes else "nya"
     meters_per_dxf_unit = None
-    if uploaded_bytes is not None:
+    if archived_case:
+        target_length_m = 536.0
+        st.sidebar.caption("DXF ampliado exacto del ensayo CFD, escalado a 536 m. "
+                           "Cambia a Exploración editable para cargar otro plano.")
+    elif uploaded_bytes is not None:
         scale_mode = st.sidebar.radio(
             "Escala del nuevo DXF",
             ["Coordenadas del DXF en unidades conocidas", "Escalar a longitud conocida"],
@@ -473,29 +492,40 @@ def main():
             "Longitud de referencia para escalar DXF (m)", min_value=100.0,
             max_value=2000.0, value=536.0, step=1.0,
             help="Escala longitud y anchos con el mismo factor. Ningún ancho fijo reemplaza el DXF.")
-    depth_m = st.sidebar.number_input("Profundidad de agua (m)", 0.4, 3.0, 1.2, 0.05)
+    depth_m = st.sidebar.number_input("Profundidad de agua (m)", 0.4, 3.0, 1.2, 0.05,
+                                      disabled=archived_case,
+                                      key="rf_depth_archive" if archived_case else None)
     calm_width_m = st.sidebar.number_input(
         "Umbral para localizar la playa principal (m)", 4.0, 40.0, 15.0, 0.5,
+        disabled=archived_case,
+        key="rf_beach_threshold_archive" if archived_case else None,
         help="Identifica la playa principal del DXF para el perfil. Con ese perfil activo, "
              "las otras partes anchas siguen siendo zonas de circulación, no zonas calmas.")
     st.sidebar.subheader("Acabados y resistencia del canal")
     wall_finish = st.sidebar.selectbox(
         "Acabado propuesto de paredes",
-        ["Piedra local impermeabilizada", "Concreto texturizado tipo piedra", "Personalizado"],
+        (["Piedra local impermeabilizada"] if archived_case else
+         ["Piedra local impermeabilizada", "Concreto texturizado tipo piedra", "Personalizado"]),
+        disabled=archived_case,
         help="Son escenarios de fase 1. El revestimiento final y su rugosidad deben definirse y verificarse.")
     wall_default = {"Piedra local impermeabilizada": 0.025,
                     "Concreto texturizado tipo piedra": 0.017,
                     "Personalizado": 0.020}[wall_finish]
     floor_n = st.sidebar.slider("Manning n · piso liso", 0.010, 0.035, 0.013,
-                                0.001, format="%.3f",
+                                0.001, format="%.3f", disabled=archived_case,
+                                key="rf_floor_n_archive" if archived_case else None,
                                 help="Hipótesis para un fondo liso transitable; no certifica textura antideslizante ni seguridad.")
     wall_n_current = st.sidebar.slider(
         "Manning n · paredes de corriente", 0.010, 0.040, wall_default,
-        0.001, format="%.3f", key=f"rf_wall_current_{wall_finish}",
+        0.001, format="%.3f", key=(f"rf_wall_current_{wall_finish}_archive"
+                                    if archived_case else f"rf_wall_current_{wall_finish}"),
+        disabled=archived_case,
         help="Escenario de rugosidad de pared, no un valor confirmado para el material de NYA.")
     wall_n_calm = st.sidebar.slider(
         "Manning n · paredes de playa", 0.010, 0.040, wall_default,
-        0.001, format="%.3f", key=f"rf_wall_calm_{wall_finish}",
+        0.001, format="%.3f", key=(f"rf_wall_calm_{wall_finish}_archive"
+                                    if archived_case else f"rf_wall_calm_{wall_finish}"),
+        disabled=archived_case,
         help="Se usa en las secciones anchas identificadas desde el DXF.")
 
     try:
@@ -511,7 +541,12 @@ def main():
         st.error(f"No se pudo procesar el DXF: {exc}")
         st.stop()
     for issue in issues:
-        st.warning(str(issue))
+        if archived_case and "Capa PAREDES ausente" in str(issue):
+            st.info("El DXF ampliado archivado usa dos contornos cerrados de A-NOTAS. "
+                    "Su huella coincide con el archivo usado para el CFD; "
+                    "las orillas se identificaron a partir de esos contornos.")
+        else:
+            st.warning(str(issue))
     if signed_centerline_area(model.stations) <= 0:
         st.error("No se pudo confirmar el sentido antihorario del recorrido.")
         st.stop()
@@ -520,7 +555,8 @@ def main():
     ).hexdigest()[:12]
     if uploaded_bytes is not None:
         st.sidebar.caption(
-            f"Plano {uploaded.name}: {model.geometry.channel_length_m:.1f} m de recorrido; "
+            f"Plano {uploaded.name if uploaded else 'DXF ampliado archivado'}: "
+            f"{model.geometry.channel_length_m:.1f} m de recorrido; "
             f"anchos {model.geometry.channel_width_min_m:.1f}–"
             f"{model.geometry.channel_width_max_m:.1f} m. "
             "Confirme que las unidades o la longitud elegida corresponden al plano.")
@@ -531,14 +567,19 @@ def main():
 
     st.sidebar.subheader("Perfil de la playa principal · anteproyecto")
     use_beach_profile = st.sidebar.checkbox(
-        "Aplicar cotas proporcionales al DXF", value=True,
+        "Aplicar cotas proporcionales al DXF", value=True, disabled=archived_case,
+        key="rf_beach_profile_archive" if archived_case else None,
         help="Solo el ensanchamiento principal recibe esta rampa. Su acceso angosto y las "
              "otras ampliaciones siguen siendo parte del recorrido con corriente.")
     beach_first_share = st.sidebar.slider(
         "Fracción plana de playa (% del ancho extra DXF)", 20, 80, 62, 1,
+        disabled=archived_case,
+        key="rf_beach_share_archive" if archived_case else None,
         help="Equivale proporcionalmente a 16 m planos de un perfil de 26 m; el resto es rampa.")
     beach_ramp_pct = st.sidebar.number_input(
         "Pendiente de rampa de playa (%)", 1.0, 20.0, 6.5, 0.5,
+        disabled=archived_case,
+        key="rf_beach_slope_archive" if archived_case else None,
         help="Si no alcanza profundidad cero dentro del DXF, se informa la profundidad restante.")
     try:
         beach_geometry = (compute_beach_geometry(
@@ -555,62 +596,96 @@ def main():
 
     st.sidebar.header("Unidades Riverflow")
     target_lap_min = st.sidebar.number_input("Objetivo de tiempo por vuelta (min)",
-                                             5.0, 120.0, 40.0, 0.5)
-    active_modules = st.sidebar.number_input("Unidades activas", 1, 60, 19, 1)
+                                             5.0, 120.0, 35.0 if archived_case else 40.0,
+                                             0.5, disabled=archived_case,
+                                             key=f"rf_target_{'archive' if archived_case else 'editable'}")
+    active_modules = st.sidebar.number_input("Unidades activas", 1, 60,
+                                             20 if archived_case else 19, 1,
+                                             disabled=archived_case,
+                                             key=f"rf_active_modules_{'archive' if archived_case else 'editable'}")
     standby_modules = st.sidebar.number_input("Unidades de reserva", 0, 10, 1, 1,
+                                              disabled=archived_case,
+                                              key="rf_standby_archive" if archived_case else None,
                                               help="No aportan caudal mientras están apagadas.")
     curve_choice = st.sidebar.selectbox(
-        "Lectura de curva H–Q", ["Puntos visibles de la imagen · aproximados",
-                                   "Solo 2 puntos rotulados · interpolación lineal"],
+        "Lectura de curva H–Q",
+        (["Puntos visibles de la imagen · aproximados"] if archived_case else
+         ["Puntos visibles de la imagen · aproximados",
+          "Solo 2 puntos rotulados · interpolación lineal"]),
+        disabled=archived_case,
         help="La imagen contiene puntos intermedios sin tabla numérica. Su digitalización es aproximada; "
              "los puntos rotulados de 4 y 10 ft son exactos y no se extrapola fuera de ellos.")
     curve_mode = "photo" if curve_choice.startswith("Puntos") else "anchors"
-    speed_pct = st.sidebar.slider("Velocidad del variador (%)", 50, 100, 100, 1,
+    speed_pct = st.sidebar.slider("Velocidad del variador (%)", 50, 100,
+                                   70 if archived_case else 100, 1,
+                                   disabled=archived_case,
+                                   key=f"rf_speed_{'archive' if archived_case else 'editable'}",
                                   help="Q proporcional a RPM es una aproximación; la curva H–Q real determina el caudal.")
     use_local_circuit = st.sidebar.checkbox(
         "Resolver circuito local por unidad · escenario", value=True,
+        disabled=archived_case,
+        key="rf_local_circuit_archive" if archived_case else None,
         help="Cruza la curva H–Q disponible con pérdidas de tubería y coeficientes K editables. "
              "El trazado y los K de NYA aún son hipótesis; no es una selección para compra.")
-    reference_options = ("Circuito NYA editable",) + tuple(
-        reference.label for reference in LAZY_RIVER_REFERENCES)
+    reference_options = (("Circuito NYA editable",) if archived_case else
+                         ("Circuito NYA editable",) + tuple(
+                             reference.label for reference in LAZY_RIVER_REFERENCES))
     hydraulic_source = st.sidebar.selectbox(
         "Fuente del punto de operación · prueba local", reference_options,
-        disabled=not use_local_circuit,
+        disabled=archived_case or not use_local_circuit,
         help="NYA editable conserva las pérdidas manuales. Las otras opciones son puntos "
              "aproximados de instalaciones ejemplo Riverflow, no mediciones de NYA.")
     selected_reference = (next((reference for reference in LAZY_RIVER_REFERENCES
                                 if reference.label == hydraulic_source), None)
                           if use_local_circuit else None)
     nozzle_type = st.sidebar.selectbox(
-        "Salida propuesta", ["7 puertos", "Manifold de 3 puertos"],
+        "Salida propuesta",
+        ["7 puertos"] if archived_case else ["7 puertos", "Manifold de 3 puertos"],
+        disabled=archived_case,
         help="Solo la salida 12 × 7 tiene área abierta documentada (0,2892 ft²). "
              "Para tres puertos falta el área y su curva de pérdidas: no se extrapolan las del modelo de siete.")
     if selected_reference is not None and nozzle_type != "7 puertos":
         st.sidebar.warning("La referencia Brannon incluye acelerador de 7 puertos. "
                            "Seleccionar 3 puertos no recalcula ese punto documentado.")
-    with st.sidebar.expander("Circuito local · toma → bomba → descarga", expanded=use_local_circuit):
+    with st.sidebar.expander("Circuito local · toma → bomba → descarga",
+                             expanded=use_local_circuit and not archived_case):
         st.caption("El plano de Riverflow muestra dos tomas, tubería PVC Sch 40 nominal de 12″ "
                    "y salida de 7 puertos. El diámetro interior inicial ≈0.303 m procede de "
                    "una ficha de tubería Sch 40 de Westlake: es una REFERENCIA de producto, "
                    "no el material elegido para NYA. Longitudes y K siguen siendo hipótesis.")
-        suction_length = st.number_input("Longitud succión por unidad (m)", 0.0, 100.0, 8.0, 0.5)
+        suction_length = st.number_input("Longitud succión por unidad (m)", 0.0, 100.0, 8.0,
+                                         0.5, disabled=archived_case,
+                                         key="rf_suction_length_archive" if archived_case else None)
         suction_diameter = st.number_input("Diámetro interior succión (m)", 0.10, 0.50,
-                                          round(PVC_12_SCH40_REFERENCE_ID_M, 3), 0.001, format="%.3f")
-        discharge_length = st.number_input("Longitud descarga por unidad (m)", 0.0, 100.0, 8.0, 0.5)
+                                           round(PVC_12_SCH40_REFERENCE_ID_M, 3), 0.001,
+                                           format="%.3f", disabled=archived_case,
+                                           key="rf_suction_diameter_archive" if archived_case else None)
+        discharge_length = st.number_input("Longitud descarga por unidad (m)", 0.0, 100.0,
+                                           8.0, 0.5, disabled=archived_case,
+                                           key="rf_discharge_length_archive" if archived_case else None)
         discharge_diameter = st.number_input("Diámetro interior descarga (m)", 0.10, 0.50,
-                                            round(PVC_12_SCH40_REFERENCE_ID_M, 3), 0.001, format="%.3f")
-        suction_k = st.number_input("K agregado tomas y accesorios succión · hipótesis", 0.0, 30.0, 1.0, 0.5)
-        discharge_k = st.number_input("K agregado accesorios descarga · hipótesis", 0.0, 30.0, 1.0, 0.5)
+                                           round(PVC_12_SCH40_REFERENCE_ID_M, 3), 0.001,
+                                           format="%.3f", disabled=archived_case,
+                                           key="rf_discharge_diameter_archive" if archived_case else None)
+        suction_k = st.number_input("K agregado tomas y accesorios succión · hipótesis",
+                                    0.0, 30.0, 1.0, 0.5, disabled=archived_case,
+                                    key="rf_suction_k_archive" if archived_case else None)
+        discharge_k = st.number_input("K agregado accesorios descarga · hipótesis",
+                                      0.0, 30.0, 1.0, 0.5, disabled=archived_case,
+                                      key="rf_discharge_k_archive" if archived_case else None)
         documented_nozzle = nozzle_type == "7 puertos"
         nozzle_loss_mode = st.radio(
             "Pérdida de salida para circuito NYA",
-            ["Área documentada + Cd supuesto", "K manual"],
-            disabled=not documented_nozzle,
+            (["Área documentada + Cd supuesto"] if archived_case else
+             ["Área documentada + Cd supuesto", "K manual"]),
+            disabled=archived_case or not documented_nozzle,
             help="El área abierta está documentada; Cd NO fue medido. El K equivalente "
                  "sustituye al K manual, nunca se suma a él.") if documented_nozzle else "K manual"
         if nozzle_loss_mode == "Área documentada + Cd supuesto":
             nozzle_cd = st.slider(
                 "Cd supuesto del acelerador (no medido)", 0.50, 1.00, 0.85, 0.01,
+                disabled=archived_case,
+                key="rf_nozzle_cd_archive" if archived_case else None,
                 help="Representa de forma simplificada la contracción/pérdida del acelerador. "
                      "0,85 es una hipótesis de prueba, no un rendimiento publicado por Riverflow.")
             outlet_k = nozzle_outlet_k(discharge_diameter,
@@ -623,14 +698,18 @@ def main():
             nozzle_cd = None
             outlet_k = st.number_input(
                 "K salida/acelerador · hipótesis no medida", 0.0, 30.0, 3.0, 0.5,
+                disabled=archived_case,
                 help="Se usa si la salida es de 3 puertos o se desea comparar un K manual. "
                      "No representa una pérdida medida del fabricante.")
-        static_head = st.number_input("Desnivel neto del circuito (m)", 0.0, 5.0, 0.0, 0.1,
+        static_head = st.number_input("Desnivel neto del circuito (m)", 0.0, 5.0, 0.0,
+                                      0.1, disabled=archived_case,
+                                      key="rf_static_head_archive" if archived_case else None,
                                       help="En recirculación desde y hacia el mismo espejo de agua se usa 0; "
                                            "no representa la elevación física de la bomba ni verifica succión inundada.")
         custom_circuits = st.checkbox(
             "Editar tuberías y pérdidas por unidad", value=False,
-            disabled=not use_local_circuit or selected_reference is not None,
+            disabled=archived_case or not use_local_circuit or selected_reference is not None,
+            key="rf_custom_circuits_archive" if archived_case else None,
             help="Cada RF puede tener otra longitud, diámetro interior y K. "
                  "Los valores siguen siendo hipótesis hasta definir el trazado constructivo.")
         circuit_rows = None
@@ -654,7 +733,7 @@ def main():
                 key=f"rf_circuits_{active_modules}", width="stretch")
     local_head_manual_ft = st.sidebar.number_input(
         "TDH local manual a plena velocidad (ft)", 4.0, 10.0, 4.0, 0.5,
-        disabled=use_local_circuit,
+        disabled=archived_case or use_local_circuit,
         help="Solo se usa al desactivar el circuito local. Es una hipótesis entre las dos anclas de la curva.")
     circuit = LocalCircuit(suction_length, suction_diameter, discharge_length,
                            discharge_diameter, suction_k, discharge_k, outlet_k,
@@ -711,10 +790,17 @@ def main():
                  "local de las bombas ni la filtración. Sí cambia la vuelta y las "
                  "velocidades de los ensayos 2D/3D y sus comparativas. El 2 % no "
                  "es un dato de Riverflow ni una medición de NYA.")
-    placement_mode = st.sidebar.radio("Ubicación de unidades", ["Automática", "Editar por recorrido (m)"],
-                                      help="La ubicación automática evita las entradas a playa.",
-                                      key="riverflow_placement_mode")
+    placement_mode = ("Ensayo archivado · 20 posiciones" if archived_case else
+                      st.sidebar.radio("Ubicación de unidades",
+                                       ["Automática", "Editar por recorrido (m)"],
+                                       help="La ubicación automática evita las entradas a playa.",
+                                       key="riverflow_placement_mode"))
     manual_positions = None
+    archived_banks = None
+    if archived_case:
+        manual_positions, archived_banks = archived_wide_layout()
+        st.sidebar.caption("20 progresivas y márgenes hipotéticos del ensayo guardado; "
+                           "la estación 2 fue trasladada por criterio del estudio.")
     if placement_mode == "Editar por recorrido (m)":
         eligible = [station for station in model.stations
                     if station["width_m"] < calm_width_m] or model.stations
@@ -756,12 +842,15 @@ def main():
             st.sidebar.error(str(exc))
             st.stop()
     angle_mode = st.sidebar.radio("Orientación de descargas",
-                                  ["Todas alineadas", "Editar ángulos por unidad"],
+                                  (["Todas alineadas"] if archived_case else
+                                   ["Todas alineadas", "Editar ángulos por unidad"]),
+                                  disabled=archived_case,
                                   help="0° sigue el recorrido antihorario; valores positivos se inclinan hacia la margen elegida. "
                                        "La penalización por ángulo es una hipótesis de escenario.")
     if angle_mode == "Todas alineadas":
         common_angle = st.sidebar.slider("Ángulo de descarga respecto al recorrido (°)",
-                                         -60, 60, 0, 5)
+                                         -60, 60, 0, 5, disabled=archived_case,
+                                         key="rf_angle_archive" if archived_case else None)
         module_angles = [float(common_angle)] * active_modules
     else:
         angles_text = st.sidebar.text_area("Ángulos por unidad (°), separados por coma",
@@ -773,7 +862,7 @@ def main():
             st.sidebar.error("Los ángulos deben ser números separados por comas.")
             st.stop()
 
-    module_banks = ["Exterior"] * active_modules
+    module_banks = list(archived_banks) if archived_banks is not None else ["Exterior"] * active_modules
     if placement_mode == "Editar por recorrido (m)":
         with st.sidebar.expander("Margen de cada Riverflow · esquema", expanded=False):
             st.caption("E = exterior del circuito DXF; I = interior. El exterior de una curva "
@@ -796,6 +885,8 @@ def main():
     st.sidebar.header("Tratamiento separado")
     turnover_h = st.sidebar.number_input("Recirculación de filtración (h)",
                                          2.0, 12.0, 4.0, 0.5,
+                                         disabled=archived_case,
+                                         key="rf_turnover_archive" if archived_case else None,
                                          help="Q filtrado = volumen / horas. 4 h es el escenario NYA, "
                                               "6 h es la referencia general de Costa Rica para vasos >0,60 m "
                                               "si aplica, y 2 h es referencia internacional MAHC para lazy rivers. "
@@ -852,7 +943,13 @@ def main():
         if calm_positions:
             st.warning("Unidades manuales en zonas calmas: " + ", ".join(map(str, calm_positions)) +
                        ". Compruebe que no alteren las entradas a playa.")
-    if uploaded_bytes is not None:
+    if archived_case:
+        st.info(f"**DXF ampliado del ensayo:** {plan.length_m:.1f} m; anchos "
+                f"{model.geometry.channel_width_min_m:.1f}–"
+                f"{model.geometry.channel_width_max_m:.1f} m. "
+                "El plano conceptual y sus métricas rápidas se recalculan con este DXF. "
+                "El campo OpenFOAM mostrado es el resultado fijo de 20 bombas al 70 %.")
+    elif uploaded_bytes is not None:
         st.info(f"**Nuevo DXF recalculado:** {plan.length_m:.1f} m; anchos "
                 f"{model.geometry.channel_width_min_m:.1f}–"
                 f"{model.geometry.channel_width_max_m:.1f} m. Volumen, caudal objetivo, "
@@ -864,7 +961,16 @@ def main():
                               abs(plan.length_m - 536.0) < .01 and
                               source_dxf_matches())
 
-    if placement_mode == "Automática":
+    if archived_case:
+        st.info("**Escenario activo:** DXF ampliado · 20 CF104 · VFD 70 % · posiciones "
+                "del ensayo guardado. El campo OpenFOAM está archivado: cambiar un "
+                "supuesto en otras hojas no vuelve a ejecutar CFD. Los indicadores del "
+                "modelo rápido se identifican aparte y pueden diferir del CFD.")
+        st.caption(f"Volumen por secciones del modelo rápido: {plan.volume_m3:,.0f} m³; "
+                   f"volumen de la malla CFD guardada: {load_archive()['wide_volume_m3']:,.0f} m³. "
+                   "La diferencia procede de discretizaciones distintas del mismo DXF "
+                   "y perfil supuesto; las métricas superiores usan el primer volumen.")
+    elif placement_mode == "Automática":
         exterior_count = plan.module_banks.count("Exterior")
         st.caption(f"Ubicación automática activa: {exterior_count} unidades en la margen "
                    f"exterior del circuito y {plan.active_modules - exterior_count} "
@@ -880,12 +986,13 @@ def main():
                    "no caudal demostrado de circulación longitudinal.")
     g3.metric("Motores activos · placa", f"{plan.active_motor_nameplate_hp:.0f} HP")
     g4.metric("Filtración separada", f"{plan.filtration_flow_m3_h:,.0f} m³/h")
-    g5.metric("Q medio por unidad · fuente elegida" if custom_circuits else
-              "Q por unidad · fuente elegida",
-              f"{plan.module_flow_full_speed_m3_h:,.0f} m³/h",
+    g5.metric("Q local medio por unidad · VFD actual" if custom_circuits else
+              "Q local por unidad · VFD actual",
+              f"{plan.module_flow_full_speed_m3_h * plan.speed_fraction:,.0f} m³/h",
               help=f"{hydraulic_source if use_local_circuit else 'TDH manual'}: "
                    f"{local_head_ft:.1f} ft ({local_head_ft * 0.3048:.2f} m) "
-                   "de TDH local equivalente a plena velocidad.")
+                    "de TDH local equivalente a plena velocidad. Caudal de esta "
+                    "hipótesis de circuito; no es el Q longitudinal del río.")
     st.caption("**Calculado con el DXF activo:** largo, anchos, volumen, Q objetivo = "
                "volumen/tiempo, resistencia de Manning y necesidad de filtración. "
                "**Escenario, no medición:** caudal local CF104 según curva/circuito elegido; "
@@ -969,6 +1076,23 @@ def main():
                 current_flow_m3_h=plan.module_flow_full_speed_m3_h * plan.speed_fraction)
 
     with tab_map:
+        if archived_case:
+            st.subheader("Flujo OpenFOAM guardado · mismo DXF y 20 posiciones")
+            archived_results = load_archive()["cases"]["wide_relocated_70"]
+            st.caption(f"Vuelta hidráulica proyectada {archived_results['lap_min']:.2f} min · "
+                       f"retorno local {100 * archived_results['reverse_fraction']:.1f} % · "
+                       f"zona ancha lenta {100 * archived_results['wide_slow_fraction']:.1f} %. "
+                       "Son resultados del campo guardado, no una corrida nueva al abrir la web.")
+            render_archived_flow(key="rf_active_archived_view")
+            st.divider()
+            st.subheader("Plano recalculado · geometría y bombas del archivo")
+            st.warning("El plano siguiente comparte DXF, progresivas, márgenes y VFD con "
+                       "el ensayo guardado. Sus velocidades opcionales y el 3D conceptual "
+                       "proceden del modelo rápido con transferencia no calibrada; "
+                       "no son el campo OpenFOAM mostrado arriba.")
+            st.caption("En este plano RF-01 a RF-20 siguen el orden de la progresiva. "
+                       "La numeración de la imagen de Riverflow es distinta y se conserva "
+                       "en la tabla de posiciones del ensayo guardado.")
         st.info(f"Circulación antihoraria. La progresiva 0/{model.geometry.channel_length_m:.0f} m "
                 "marca el inicio y fin de la vuelta "
                 "en la sección más ancha de la playa principal; el DXF no se modifica. "
@@ -1174,7 +1298,7 @@ def main():
             st.caption("Las curvas se detectan con ventanas de 10 m sobre el DXF. "
                        "Estar cerca de una curva no demuestra que el chorro la atraviese; "
                        "la playa y las tomas requieren revisión de seguridad independiente.")
-        if placement_mode != "Automática":
+        if placement_mode == "Editar por recorrido (m)":
             st.button("Activar propuesta automática de pasos anchos y curvas",
                       on_click=lambda: st.session_state.update(
                           riverflow_placement_mode="Automática"),
@@ -1182,18 +1306,19 @@ def main():
         st.plotly_chart(make_map(model, plan, show_installation, show_heatmap, field,
                                  section_checks), width="stretch", key="rf_main_2d_map")
         st.divider()
-        render_saved_cfd(
-            plan, speed_pct, not saved_geometry_matches,
-            floor_n=floor_n, wall_n_current=wall_n_current,
-            wall_n_calm=wall_n_calm, depth_m=depth_m, nozzle_type=nozzle_type,
-            beach_flat_m=(beach_geometry.beach_max_extra_width_m *
-                          beach_first_share / 100 if beach_geometry else None),
-            beach_ramp_pct=beach_ramp_pct,
-            beach_profile_enabled=use_beach_profile,
-            beach_share_pct=beach_first_share,
-            beach_threshold_m=calm_width_m,
-            uploaded_sha256=(hashlib.sha256(uploaded_bytes).hexdigest()
-                             if uploaded_bytes is not None else None))
+        if not archived_case:
+            render_saved_cfd(
+                plan, speed_pct, not saved_geometry_matches,
+                floor_n=floor_n, wall_n_current=wall_n_current,
+                wall_n_calm=wall_n_calm, depth_m=depth_m, nozzle_type=nozzle_type,
+                beach_flat_m=(beach_geometry.beach_max_extra_width_m *
+                              beach_first_share / 100 if beach_geometry else None),
+                beach_ramp_pct=beach_ramp_pct,
+                beach_profile_enabled=use_beach_profile,
+                beach_share_pct=beach_first_share,
+                beach_threshold_m=calm_width_m,
+                uploaded_sha256=(hashlib.sha256(uploaded_bytes).hexdigest()
+                                 if uploaded_bytes is not None else None))
         if section_checks is not None:
             flagged_checks = [check for check in section_checks if check.status != "Consistente"]
             c_a, c_b, c_c = st.columns(3)
@@ -1830,20 +1955,41 @@ def main():
     with tab_momentum:
         st.subheader("Ensayo 2D de momento longitudinal · separado del diseño base")
         st.warning("Es una prueba de sensibilidad, no CFD ni una predicción calibrada. "
-                   "Conserva el caudal longitudinal derivado del 2 % del escenario principal; "
-                   "NO verifica ese 2 % ni calcula de nuevo "
-                   "el punto de operación, la cantidad de bombas ni velocidades seguras para bañistas.")
+                   "Conserva el caudal longitudinal derivado de la energía útil supuesta "
+                   "del escenario principal. Ninguna opción de impulso valida ese caudal, "
+                   "la cantidad de bombas ni velocidades seguras para bañistas.")
         st.caption("Resuelve advección longitudinal, mezcla lateral y arrastre Manning linealizado "
                    "en una malla cerrada. Una corrección de presión por sección conserva Q. "
                    "No resuelve momento lateral, superficie libre, remolinos ni interacción con personas.")
+        source_mode = st.radio("Fuente del impulso local",
+                               ["Aceleración supuesta · ensayo anterior",
+                                "Caudal y área de siete puertos · transferencia supuesta"],
+                               horizontal=True, key="rf_momentum_source")
+        use_nozzle_force = source_mode.startswith("Caudal")
         ma, mb, mc = st.columns(3)
         beach_bank = ma.selectbox("Margen supuesta de la playa", ["Exterior", "Interior"],
                                   help="El DXF contiene paredes, pero no identifica la margen de la rampa sumergida.")
         eddy = mb.slider("Mezcla lateral supuesta (m²/s)", 0.01, 0.40, 0.08, 0.01,
                          help="Viscosidad turbulenta efectiva exploratoria; no medida en NYA.")
-        jet_accel = mc.slider("Impulso longitudinal local supuesto (mm/s²)",
-                              0.0, 8.0, 2.0, 0.5,
-                              help="Sensibilidad de la descarga, no fuerza certificada por Riverflow.")
+        if use_nozzle_force:
+            transfer_fraction = mc.slider(
+                "Fracción de momento transferido · hipótesis (%)", 1, 100, 10, 1,
+                key="rf_nozzle_momentum_fraction",
+                help="Parte supuesta del empuje de salida que se reparte al agua del canal. "
+                     "No es un rendimiento certificado ni sustituye el 2 % del caudal base.") / 100
+            lateral_spread = st.slider("Mezcla lateral supuesta del chorro (m)",
+                                       0.5, 10.0, 2.0, 0.5,
+                                       key="rf_nozzle_lateral_spread")
+            st.caption("Fuerza disponible = ρ · Q por bomba · (Q/área abierta de siete puertos) "
+                       "· fracción supuesta · cos(ángulo). La distancia longitudinal y la "
+                       "mezcla lateral siguen siendo hipótesis; no se resuelven siete jets.")
+            jet_accel = 0.0
+        else:
+            transfer_fraction = None
+            lateral_spread = 2.0
+            jet_accel = mc.slider("Impulso longitudinal local supuesto (mm/s²)",
+                                  0.0, 8.0, 2.0, 0.5,
+                                  help="Sensibilidad de la descarga, no fuerza certificada por Riverflow.")
         spread = st.slider("Longitud de influencia supuesta por unidad (m)", 4, 30, 12, 1)
         run_pilot = st.checkbox("Ejecutar y comparar el ensayo 2D", value=False,
                                 key="riverflow_momentum_run")
@@ -1858,6 +2004,8 @@ def main():
                     eddy_viscosity_m2_s=eddy,
                     jet_acceleration_m_s2=jet_accel / 1000,
                     jet_spread_m=spread,
+                    nozzle_transfer_fraction=transfer_fraction,
+                    lateral_jet_spread_m=lateral_spread,
                     beach_first_share=beach_first_share / 100)
             except ValueError as exc:
                 st.error(f"No se pudo resolver el ensayo: {exc}")
@@ -1867,6 +2015,13 @@ def main():
                 cm2.metric("Vuelta central · ensayo", f"{pilot.lane_lap_min[1]:.1f} min")
                 cm3.metric("Vuelta central · mapa actual", f"{field.lane_lap_min[1]:.1f} min")
                 cm4.metric("Error máximo de conservación Q", f"{pilot.flow_residual_fraction:.2%}")
+                if use_nozzle_force:
+                    st.caption(f"Velocidad calculada de salida: "
+                               f"{min(pilot.nozzle_exit_speed_m_s):.2f}–"
+                               f"{max(pilot.nozzle_exit_speed_m_s):.2f} m/s; "
+                               f"empuje asignado al ensayo: {pilot.applied_nozzle_thrust_n:,.0f} N. "
+                               "El empuje asignado depende de la fracción editable, no es "
+                               "una medición Riverflow ni cambia el Q longitudinal heredado.")
                 st.caption("La vuelta del ensayo integra un carril a fracción lateral fija; "
                            "la del mapa actual sigue una línea de corriente conceptual. "
                            "La diferencia no es una corrección validada del tiempo real.")
@@ -1877,6 +2032,8 @@ def main():
                         eddy_viscosity_m2_s=eddy,
                         jet_acceleration_m_s2=jet_accel / 1000,
                         jet_spread_m=spread,
+                            nozzle_transfer_fraction=transfer_fraction,
+                            lateral_jet_spread_m=lateral_spread,
                         beach_first_share=beach_first_share / 100,
                         longitudinal_cells=128, lateral_cells=17)
                     grid_difference = abs(refined.lane_lap_min[1] - pilot.lane_lap_min[1])
@@ -2531,7 +2688,8 @@ def main():
             wall_n=wall_n_current, active_modules=active_modules,
             speed_pct=speed_pct,
             unit_flow_m3_h=plan.module_flow_full_speed_m3_h * plan.speed_fraction,
-            turnover_h=turnover_h)
+            turnover_h=turnover_h,
+            positions_m=tuple(plan.module_chainages_m), banks=tuple(plan.module_banks))
         st.markdown("**Qué podemos decidir con el DXF activo**")
         shore_depth = (beach_geometry.beach_end_depth_at_widest_m
                        if beach_geometry is not None else None)
