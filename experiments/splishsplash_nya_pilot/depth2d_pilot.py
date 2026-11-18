@@ -346,15 +346,23 @@ def render_lab(*, embedded: bool = False, active_model=None,
         for key in ("drag_view", "drag_error", "last_drag_id"):
             st.session_state.pop(key, None)
         st.session_state["depth2d_active_geometry_id"] = geometry_id
+    if embedded and st.session_state.get("depth2d_active_count") != initial_count:
+        st.session_state.pop("depth2d_results", None)
+        st.session_state.pop("depth2d_count", None)
+        st.session_state.pop("drag_view", None)
+        st.session_state.pop("drag_error", None)
+        st.session_state.pop("last_drag_id", None)
+        st.session_state["depth2d_active_count"] = initial_count
     if not embedded:
         st.set_page_config(page_title="NYA · flujo 2D local", layout="wide")
         st.title("NYA · ensayo 2D de chorros y tomas")
     else:
         st.subheader("Mover bombas y observar la corriente · ensayo 2D")
-        st.caption(("Hoja independiente: usa el DXF cargado en el menú. "
+        st.caption(("Hoja exploratoria: usa el DXF cargado en el menú. "
                     if using_uploaded_geometry else
-                    "Hoja independiente: usa el DXF de referencia. ") +
-                   "Sus controles no modifican el escenario principal.")
+                    "Hoja exploratoria: usa el DXF de referencia. ") +
+                   "La cantidad de bombas activas se toma del menú principal; "
+                   "las posiciones arrastradas y los parámetros de mezcla solo cambian esta hoja.")
     model, beach = ((active_model, active_beach or ()) if using_uploaded_geometry
                     else geometry())
     length_m = float(model.geometry.channel_length_m)
@@ -443,6 +451,10 @@ El borde oscuro sigue el **contorno DXF original**. ◆ es descarga y × es toma
                     loaded = settings_from_record(scenarios[selected_scenario])
                     if scenarios[selected_scenario].get("geometry_id", "nya") != geometry_id:
                         raise ValueError("El escenario no corresponde al DXF activo.")
+                    if embedded and loaded.count != initial_count:
+                        raise ValueError(f"El escenario guardado tiene {loaded.count} bombas; "
+                                         f"seleccione esa cantidad en el menú principal "
+                                         "antes de abrirlo.")
                     baseline = run_field(replace(loaded, site_overrides=()))
                     modified = run_field(loaded)
                     candidates = drag_candidates(model, beach)
@@ -455,7 +467,8 @@ El borde oscuro sigue el **contorno DXF original**. ◆ es descarga y × es toma
                 except ValueError as exc:
                     st.error(f"No se pudo abrir «{selected_scenario}»: {exc}")
                 else:
-                    st.session_state.depth2d_count = loaded.count
+                    if not embedded:
+                        st.session_state.depth2d_count = loaded.count
                     st.session_state.depth2d_coupling = round(loaded.momentum_fraction * 100)
                     st.session_state.depth2d_angle = int(loaded.nozzle_angle_deg)
                     st.session_state.depth2d_mixing = loaded.eddy_viscosity_m2_s
@@ -477,8 +490,11 @@ El borde oscuro sigue el **contorno DXF original**. ◆ es descarga y × es toma
         st.success(f"Escenario «{saved_notice}» guardado en este equipo.")
     with st.form("scenario"):
         a, b, c, g = st.columns(4)
-        if using_uploaded_geometry:
-            count = a.number_input("Bombas activas", 1, 50, min(initial_count, 50), 1,
+        if embedded:
+            count = initial_count
+            a.metric("Bombas activas · menú principal", str(count))
+        elif using_uploaded_geometry:
+            count = a.number_input("Bombas activas", 1, 60, min(initial_count, 60), 1,
                                    key="depth2d_count")
         else:
             count = a.selectbox("Bombas activas", [16, 20, 24, 28],

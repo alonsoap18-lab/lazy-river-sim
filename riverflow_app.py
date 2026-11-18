@@ -447,10 +447,11 @@ def main():
     st.sidebar.header("Diseño NYA desde DXF")
     design_choice = st.sidebar.radio(
         "Escenario de trabajo",
-        ["Ensayo archivado · ampliado · 20 CF104", "Exploración editable · DXF original o propio"],
-        help="El ensayo archivado carga el DXF exacto, las 20 posiciones y el VFD del caso "
-             "OpenFOAM guardado. La exploración permite cambiar el plano y los equipos.")
-    archived_case = design_choice.startswith("Ensayo archivado")
+        ["DXF ampliado · referencia CFD de 20 CF104", "Exploración editable · DXF original o propio"],
+        help="El DXF ampliado carga inicialmente las 20 posiciones y el VFD del caso "
+             "OpenFOAM guardado. Al cambiar la cantidad se recalculan los modelos editables, "
+             "pero el CFD permanece como referencia de 20. La exploración permite cambiar el plano.")
+    archived_case = design_choice.startswith("DXF ampliado")
     uploaded = (None if archived_case else st.sidebar.file_uploader(
         "Plano DXF (dos orillas cerradas)", type=["dxf"],
         help="Preferiblemente dos polilíneas en PAREDES. También admite dos contornos "
@@ -599,10 +600,10 @@ def main():
                                              5.0, 120.0, 35.0 if archived_case else 40.0,
                                              0.5, disabled=archived_case,
                                              key=f"rf_target_{'archive' if archived_case else 'editable'}")
-    active_modules = st.sidebar.number_input("Unidades activas", 1, 60,
-                                             20 if archived_case else 19, 1,
-                                             disabled=archived_case,
-                                             key=f"rf_active_modules_{'archive' if archived_case else 'editable'}")
+    active_modules = st.sidebar.number_input("Unidades activas", 1, 60, 20, 1,
+                                             key="rf_active_modules",
+                                             help="Cantidad del escenario activo en los mapas, listas y ensayos editables. "
+                                                  "El CFD guardado conserva sus 20 bombas originales.")
     standby_modules = st.sidebar.number_input("Unidades de reserva", 0, 10, 1, 1,
                                               disabled=archived_case,
                                               key="rf_standby_archive" if archived_case else None,
@@ -790,17 +791,21 @@ def main():
                  "local de las bombas ni la filtración. Sí cambia la vuelta y las "
                  "velocidades de los ensayos 2D/3D y sus comparativas. El 2 % no "
                  "es un dato de Riverflow ni una medición de NYA.")
-    placement_mode = ("Ensayo archivado · 20 posiciones" if archived_case else
+    placement_mode = ("Ensayo archivado · 20 posiciones" if archived_case and active_modules == 20 else
+                      "Automática" if archived_case else
                       st.sidebar.radio("Ubicación de unidades",
                                        ["Automática", "Editar por recorrido (m)"],
                                        help="La ubicación automática evita las entradas a playa.",
                                        key="riverflow_placement_mode"))
     manual_positions = None
     archived_banks = None
-    if archived_case:
+    if archived_case and active_modules == 20:
         manual_positions, archived_banks = archived_wide_layout()
         st.sidebar.caption("20 progresivas y márgenes hipotéticos del ensayo guardado; "
                            "la estación 2 fue trasladada por criterio del estudio.")
+    elif archived_case:
+        st.sidebar.caption(f"Con {active_modules} bombas se recalculan posiciones provisionales "
+                           "en este DXF. El CFD archivado de 20 queda como comparación histórica.")
     if placement_mode == "Editar por recorrido (m)":
         eligible = [station for station in model.stations
                     if station["width_m"] < calm_width_m] or model.stations
@@ -962,10 +967,12 @@ def main():
                               source_dxf_matches())
 
     if archived_case:
-        st.info("**Escenario activo:** DXF ampliado · 20 CF104 · VFD 70 % · posiciones "
-                "del ensayo guardado. El campo OpenFOAM está archivado: cambiar un "
-                "supuesto en otras hojas no vuelve a ejecutar CFD. Los indicadores del "
-                "modelo rápido se identifican aparte y pueden diferir del CFD.")
+        st.info(f"**Escenario activo:** DXF ampliado · {active_modules} CF104 · VFD 70 %. "
+                + ("Usa las posiciones del ensayo guardado. " if active_modules == 20 else
+                   "Usa posiciones automáticas provisionales. ")
+                + "El campo OpenFOAM archivado corresponde exclusivamente a 20 bombas; "
+                  "cambiar la cantidad no vuelve a ejecutar CFD. Los indicadores del "
+                  "modelo rápido se identifican aparte.")
         st.caption(f"Volumen por secciones del modelo rápido: {plan.volume_m3:,.0f} m³; "
                    f"volumen de la malla CFD guardada: {load_archive()['wide_volume_m3']:,.0f} m³. "
                    "La diferencia procede de discretizaciones distintas del mismo DXF "
@@ -1048,7 +1055,7 @@ def main():
                 active_beach=(beach_geometry.beach_indices if beach_geometry else ()),
                 geometry_id=(f"{geometry_id}:{depth_m:.3f}:{calm_width_m:.2f}:"
                              f"{beach_first_share}:{beach_ramp_pct:.2f}:"
-                             f"{active_modules}:{plan.module_flow_full_speed_m3_h * plan.speed_fraction:.2f}:"
+                             f"{plan.module_flow_full_speed_m3_h * plan.speed_fraction:.2f}:"
                              f"{floor_n:.3f}:{wall_n_current:.3f}"
                              if not saved_geometry_matches else "nya"),
                 depth_m=depth_m,
@@ -1077,20 +1084,28 @@ def main():
 
     with tab_map:
         if archived_case:
-            st.subheader("Flujo OpenFOAM guardado · mismo DXF y 20 posiciones")
+            st.subheader("Flujo OpenFOAM guardado · referencia de 20 posiciones")
             archived_results = load_archive()["cases"]["wide_relocated_70"]
             st.caption(f"Vuelta hidráulica proyectada {archived_results['lap_min']:.2f} min · "
                        f"retorno local {100 * archived_results['reverse_fraction']:.1f} % · "
                        f"zona ancha lenta {100 * archived_results['wide_slow_fraction']:.1f} %. "
                        "Son resultados del campo guardado, no una corrida nueva al abrir la web.")
-            render_archived_flow(key="rf_active_archived_view")
+            if active_modules == 20:
+                render_archived_flow(key="rf_active_archived_view")
+            else:
+                st.warning(f"El escenario activo tiene {active_modules} bombas. La animación CFD "
+                           "sigue siendo el ensayo de 20 y no representa esta cantidad.")
+                with st.expander("Ver animación histórica de 20 bombas"):
+                    render_archived_flow(key="rf_historical_archived_view")
             st.divider()
-            st.subheader("Plano recalculado · geometría y bombas del archivo")
-            st.warning("El plano siguiente comparte DXF, progresivas, márgenes y VFD con "
-                       "el ensayo guardado. Sus velocidades opcionales y el 3D conceptual "
+            st.subheader(f"Plano recalculado · geometría y {active_modules} bombas activas")
+            st.warning("El plano siguiente comparte el DXF con el ensayo guardado. "
+                       + ("También comparte progresivas, márgenes y VFD. " if active_modules == 20
+                          else "Sus posiciones se recalculan y difieren del ensayo de 20. ")
+                       + "Sus velocidades opcionales y el 3D conceptual "
                        "proceden del modelo rápido con transferencia no calibrada; "
                        "no son el campo OpenFOAM mostrado arriba.")
-            st.caption("En este plano RF-01 a RF-20 siguen el orden de la progresiva. "
+            st.caption(f"En este plano RF-01 a RF-{active_modules:02d} siguen el orden de la progresiva. "
                        "La numeración de la imagen de Riverflow es distinta y se conserva "
                        "en la tabla de posiciones del ensayo guardado.")
         st.info(f"Circulación antihoraria. La progresiva 0/{model.geometry.channel_length_m:.0f} m "

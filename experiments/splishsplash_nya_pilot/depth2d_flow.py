@@ -67,7 +67,7 @@ class Flow2DInputs:
             raise ValueError("Mezcla o ángulo fuera del ensayo.")
         if not 0 < self.floor_manning_n <= .1 or not 0 < self.wall_manning_n <= .1:
             raise ValueError("Rugosidad de piso o paredes fuera del ensayo.")
-        if not 1 <= self.count <= 50:
+        if not 1 <= self.count <= 60:
             raise ValueError("Cantidad de bombas inválida.")
         if self.moved_pump_index is not None:
             if not 0 <= self.moved_pump_index < self.count:

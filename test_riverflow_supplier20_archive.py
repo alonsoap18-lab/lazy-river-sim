@@ -33,13 +33,25 @@ def test_preset_opens_with_matching_inputs_and_editable_case_is_retained():
     assert any("Volumen por secciones del modelo rápido" in item.value
                for item in app.get("caption"))
 
+    next(widget for widget in app.number_input
+         if widget.label == "Unidades activas").set_value(24)
+    app.run()
+    assert not app.exception
+    assert next(widget for widget in app.number_input
+                if widget.label == "Unidades activas").value == 24
+    assert any("El escenario activo tiene 24 bombas" in item.value
+               for item in app.warning)
+    assert any(item.label == "Bombas activas · menú principal" and item.value == "24"
+               for item in app.metric)
+    assert any("cantidad de bombas" in item.value for item in app.warning)
+
     next(widget for widget in app.radio
          if widget.label == "Escenario de trabajo").set_value(
              "Exploración editable · DXF original o propio")
     app.run()
     assert not app.exception
     assert next(widget for widget in app.number_input
-                if widget.label == "Unidades activas").value == 19
+                if widget.label == "Unidades activas").value == 24
     assert next(widget for widget in app.metric
                 if widget.label == "Volumen DXF + perfil").value.startswith("6,748")
 
@@ -49,9 +61,13 @@ def test_preset_opens_with_matching_inputs_and_editable_case_is_retained():
          if widget.label == "Aplicar cotas proporcionales al DXF").set_value(False)
     app.run()
     assert not app.exception
+    next(widget for widget in app.number_input
+         if widget.label == "Unidades activas").set_value(20)
+    app.run()
+    assert not app.exception
     next(widget for widget in app.radio
          if widget.label == "Escenario de trabajo").set_value(
-             "Ensayo archivado · ampliado · 20 CF104")
+             "DXF ampliado · referencia CFD de 20 CF104")
     app.run()
     assert not app.exception
     assert next(widget for widget in app.number_input
