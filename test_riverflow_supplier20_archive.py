@@ -8,6 +8,7 @@ from core.riverflow_supplier20_archive import (
     WIDE_SHA, _canonical_wide_dxf, archived_wide_layout, load_archive,
     wide_dxf_bytes,
 )
+from core.riverflow_supplier_photo import ASSETS, PROPOSAL, REFERENCE, load_supplier_photo
 
 
 def test_archived_source_and_paired_layout():
@@ -20,6 +21,20 @@ def test_archived_source_and_paired_layout():
         "Exterior", "Interior",
     }
     assert load_archive()["cases"]["wide_relocated_70"]["lap_min"] > 30
+
+
+def test_supplier_photo_sheet_uses_wide_dxf_and_saved_cfd_fields():
+    comparison, metadata = load_supplier_photo()
+    assert metadata["source_dxf_sha256"] == sha256(wide_dxf_bytes()).hexdigest()
+    assert len(metadata["stations"]) == 20
+    assert {item["supplier_plan_number"] for item in metadata["stations"]} == set(range(1, 21))
+    photo_two = next(item for item in metadata["stations"]
+                     if item["supplier_plan_number"] == 2)
+    assert (photo_two["chainage_m"], photo_two["bank"]) == (485.0, "Interior")
+    cases = comparison["result"]["cases"]
+    assert cases[PROPOSAL]["projected_stationary_hydraulic_lap_min"] > cases[REFERENCE]["projected_stationary_hydraulic_lap_min"]
+    for name in ("flow_2d.html.gz", "flow_3d.html.gz"):
+        assert (ASSETS / name).stat().st_size > 100_000
 
 
 def test_preset_opens_with_matching_inputs_and_editable_case_is_retained():

@@ -62,6 +62,7 @@ from core.riverflow_supplier20_archive import (archived_wide_layout, load_archiv
                                                render_archived_flow,
                                                render_supplier20_decision,
                                                wide_dxf_bytes)
+from core.riverflow_supplier_photo import render_supplier_photo_sheet
 
 
 MODEL_VERSION = "riverflow-geometry-treatment-13-upload-scale-beach-audit"
@@ -1017,10 +1018,11 @@ def main():
     # Preserve the diagnostic/experimental views without presenting them as peers of
     # the decision sheet. The optional 3D view reuses the active plan rather
     # than solving a second hydraulic scenario.
-    (tab_decision, tab_map, tab_hydraulic, tab_filtration, tab_scenarios,
-     tab_equipment, tab_flow, tab_references) = st.tabs(
-        ["Decisión · curva e impulso", "Plano y recorrido 2D/3D", "Hidráulica Riverflow",
-         "Filtración", "Escenarios hipotéticos", "Equipos e instalación",
+    (tab_decision, tab_map, tab_supplier, tab_hydraulic, tab_filtration,
+     tab_scenarios, tab_equipment, tab_flow, tab_references) = st.tabs(
+        ["Decisión · curva e impulso", "Plano y recorrido 2D/3D",
+         "Propuesta Riverflow · comparar", "Hidráulica Riverflow", "Filtración",
+         "Escenarios hipotéticos", "Equipos e instalación",
          "Estudio de flujo · mover bombas", "Fuentes y límites"])
     with tab_decision:
         decision_content = st.container()
@@ -1029,6 +1031,13 @@ def main():
     with tab_map:
         map_content = st.container()
     tab_map = map_content
+    with tab_supplier:
+        render_supplier_photo_sheet(
+            source_bytes=source_bytes, depth_m=depth_m,
+            floor_n=floor_n, wall_n=wall_n_current,
+            active_modules=active_modules, speed_pct=speed_pct,
+            positions_m=tuple(plan.module_chainages_m),
+            banks=tuple(plan.module_banks))
     with tab_hydraulic:
         hydraulic_content = st.container()
         with st.expander("Archivo técnico · ensayos 2D anteriores", expanded=False):
