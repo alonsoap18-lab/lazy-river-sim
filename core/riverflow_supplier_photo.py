@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 
 import streamlit as st
+import streamlit.components.v1 as components
 
 from core.riverflow_supplier20_archive import WIDE_SHA, archived_wide_layout
 
@@ -22,7 +23,7 @@ def load_supplier_photo() -> dict:
             {item["supplier_number"] for item in positions} != set(range(1, 21)) or
             positions[0]["chainage_m_approx"] >= positions[-1]["chainage_m_approx"]):
         raise ValueError("El traslado del plano Riverflow no coincide con el DXF ampliado.")
-    for name in ("source_plan.jpg", "corrected_layout.png"):
+    for name in ("source_plan.jpg", "corrected_layout.png", "route_animation.html"):
         if not (ASSETS / name).is_file():
             raise ValueError(f"Falta la vista {name} del plano Riverflow.")
     return layout
@@ -52,7 +53,14 @@ def render_supplier_photo_sheet(*, source_bytes: bytes, depth_m: float,
         st.caption("Los controles actuales difieren de la referencia local guardada. "
                    "Este plano sigue siendo una comparación fija y no cambia el escenario activo.")
 
-    source, transfer = st.tabs(["Plano recibido de Riverflow", "Traslado al DXF · comparación"])
+    animated, source, transfer = st.tabs([
+        "Recorrido animado", "Plano recibido de Riverflow", "Traslado al DXF · comparación"])
+    with animated:
+        html = (ASSETS / "route_animation.html").read_text(encoding="utf-8")
+        components.html(html, height=760, scrolling=False)
+        st.caption("Los trazadores se mueven para mostrar el sentido y la continuidad "
+                   "geométrica. Su rapidez en pantalla es ilustrativa y no procede de "
+                   "OpenFOAM; el nuevo CFD de estas posiciones aún no está calculado.")
     with source:
         st.image(str(ASSETS / "source_plan.jpg"),
                  caption="Plano entregado por Riverflow: marcas azules numeradas del 1 al 20. "

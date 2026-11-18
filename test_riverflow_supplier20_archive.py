@@ -1,6 +1,7 @@
 """The published CFD preset must use its own DXF and pump layout."""
 
 from hashlib import sha256
+import json
 
 from streamlit.testing.v1 import AppTest
 
@@ -35,6 +36,13 @@ def test_supplier_photo_sheet_has_correct_travel_direction_and_source_plan():
     assert all(item["bank"] == "por confirmar" for item in positions)
     assert (ASSETS / "source_plan.jpg").stat().st_size > 50_000
     assert (ASSETS / "corrected_layout.png").stat().st_size > 10_000
+    animation = (ASSETS / "route_animation.html").read_text(encoding="utf-8")
+    route = json.loads(animation.split("const data=", 1)[1].split(";", 1)[0])
+    assert len(route["pumps"]) == 20
+    assert route["pumps"][0] == [1, 20]
+    assert route["pumps"][-1] == [20, 505]
+    assert route["center"][0][0] == 0
+    assert abs(route["center"][-1][0] - route["length"]) < 1
 
 
 def test_preset_opens_with_matching_inputs_and_editable_case_is_retained():
