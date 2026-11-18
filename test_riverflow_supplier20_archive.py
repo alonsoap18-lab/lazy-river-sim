@@ -33,14 +33,17 @@ def test_supplier_photo_sheet_has_correct_travel_direction_and_source_plan():
     assert positions[0]["chainage_m_approx"] < 30
     assert positions[-1]["chainage_m_approx"] > 500
     assert positions[1]["chainage_m_approx"] < positions[2]["chainage_m_approx"]
-    assert all(item["bank"] == "por confirmar" for item in positions)
+    assert positions[0]["bank"] == "Interior"
+    assert positions[1]["bank"] == "Exterior"
+    assert positions[-1]["bank"] == "Interior"
+    assert {item["bank"] for item in positions} == {"Interior", "Exterior"}
     assert (ASSETS / "source_plan.jpg").stat().st_size > 50_000
     assert (ASSETS / "corrected_layout.png").stat().st_size > 10_000
     animation = (ASSETS / "route_animation.html").read_text(encoding="utf-8")
     route = json.loads(animation.split("const data=", 1)[1].split(";", 1)[0])
     assert len(route["pumps"]) == 20
-    assert route["pumps"][0] == [1, 20]
-    assert route["pumps"][-1] == [20, 505]
+    assert route["pumps"][0] == [1, 20, "Interior"]
+    assert route["pumps"][-1] == [20, 505, "Interior"]
     assert route["center"][0][0] == 0
     assert abs(route["center"][-1][0] - route["length"]) < 1
 

@@ -68,18 +68,20 @@ def render_supplier_photo_sheet(*, source_bytes: bytes, depth_m: float,
                  width="stretch")
     with transfer:
         st.image(str(ASSETS / "corrected_layout.png"),
-                 caption="Naranja: sector aproximado de la propuesta Riverflow, numerado "
-                         "como el plano. Azul: bombas de la referencia local en sus márgenes. "
-                         "Los puntos naranjas están sobre el eje para no inventar margen.",
+                 caption="Naranja: inicio de la línea azul numerada de Riverflow, "
+                         "trasladado aproximadamente a su orilla del DXF. "
+                         "Azul: bombas de la referencia local.",
                  width="stretch")
         st.dataframe([{
             "N.º Riverflow": item["supplier_number"],
             "Progresiva aproximada · m": item["chainage_m_approx"],
-            "Margen / ángulo": "Por confirmar",
+            "Margen leída del plano": item["bank"],
+            "Ángulo": "Por medir",
         } for item in layout["positions"]], hide_index=True, width="stretch")
         st.caption("Traslado visual con incertidumbre aproximada de ±20 m. El plano no "
-                   "proporciona coordenadas CAD ni define toma, margen de descarga, "
-                   "dirección de los siete puertos o VFD individual. Por eso todavía "
+                   "proporciona coordenadas CAD ni define toma, ángulo preciso de descarga, "
+                   "dirección de los siete puertos o VFD individual. La orilla se interpreta "
+                   "por el inicio de cada línea azul junto al número. Por eso todavía "
                    "no hay un campo CFD válido ni una vuelta calculada para estas "
                    "posiciones corregidas. La hoja «Plano y recorrido 2D/3D» conserva "
                    "la distribución local activa.")

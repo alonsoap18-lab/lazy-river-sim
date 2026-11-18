@@ -2,128 +2,148 @@
   "schema": 1,
   "wide_sha": "47154b381560b10b58d2729f9e2ae79dc90ff1f24af8a7640d36a41b15f68060",
   "source": "Plano Riverflow: ubicaciones opcionales; marcas azules numeradas 1-20",
-  "status": "traslado visual aproximado; sin corrida CFD para estas posiciones",
+  "status": "traslado visual aproximado del inicio de cada linea azul; sin CFD validado",
   "uncertainty_m": 20,
   "positions": [
     {
       "supplier_number": 1,
       "chainage_m_approx": 20,
-      "bank": "por confirmar",
-      "jet_direction": "por confirmar"
+      "bank": "Interior",
+      "bank_evidence": "orilla del inicio de la linea azul numerada",
+      "jet_angle_deg": "por medir"
     },
     {
       "supplier_number": 2,
       "chainage_m_approx": 60,
-      "bank": "por confirmar",
-      "jet_direction": "por confirmar"
+      "bank": "Exterior",
+      "bank_evidence": "orilla del inicio de la linea azul numerada",
+      "jet_angle_deg": "por medir"
     },
     {
       "supplier_number": 3,
-      "chainage_m_approx": 90,
-      "bank": "por confirmar",
-      "jet_direction": "por confirmar"
+      "chainage_m_approx": 108,
+      "bank": "Exterior",
+      "bank_evidence": "orilla del inicio de la linea azul numerada",
+      "jet_angle_deg": "por medir"
     },
     {
       "supplier_number": 4,
-      "chainage_m_approx": 110,
-      "bank": "por confirmar",
-      "jet_direction": "por confirmar"
+      "chainage_m_approx": 130,
+      "bank": "Interior",
+      "bank_evidence": "orilla del inicio de la linea azul numerada",
+      "jet_angle_deg": "por medir"
     },
     {
       "supplier_number": 5,
-      "chainage_m_approx": 135,
-      "bank": "por confirmar",
-      "jet_direction": "por confirmar"
+      "chainage_m_approx": 145,
+      "bank": "Exterior",
+      "bank_evidence": "orilla del inicio de la linea azul numerada",
+      "jet_angle_deg": "por medir"
     },
     {
       "supplier_number": 6,
       "chainage_m_approx": 165,
-      "bank": "por confirmar",
-      "jet_direction": "por confirmar"
+      "bank": "Interior",
+      "bank_evidence": "orilla del inicio de la linea azul numerada",
+      "jet_angle_deg": "por medir"
     },
     {
       "supplier_number": 7,
       "chainage_m_approx": 190,
-      "bank": "por confirmar",
-      "jet_direction": "por confirmar"
+      "bank": "Exterior",
+      "bank_evidence": "orilla del inicio de la linea azul numerada",
+      "jet_angle_deg": "por medir"
     },
     {
       "supplier_number": 8,
       "chainage_m_approx": 215,
-      "bank": "por confirmar",
-      "jet_direction": "por confirmar"
+      "bank": "Exterior",
+      "bank_evidence": "orilla del inicio de la linea azul numerada",
+      "jet_angle_deg": "por medir"
     },
     {
       "supplier_number": 9,
       "chainage_m_approx": 235,
-      "bank": "por confirmar",
-      "jet_direction": "por confirmar"
+      "bank": "Exterior",
+      "bank_evidence": "orilla del inicio de la linea azul numerada",
+      "jet_angle_deg": "por medir"
     },
     {
       "supplier_number": 10,
       "chainage_m_approx": 250,
-      "bank": "por confirmar",
-      "jet_direction": "por confirmar"
+      "bank": "Interior",
+      "bank_evidence": "orilla del inicio de la linea azul numerada",
+      "jet_angle_deg": "por medir"
     },
     {
       "supplier_number": 11,
       "chainage_m_approx": 260,
-      "bank": "por confirmar",
-      "jet_direction": "por confirmar"
+      "bank": "Exterior",
+      "bank_evidence": "orilla del inicio de la linea azul numerada",
+      "jet_angle_deg": "por medir"
     },
     {
       "supplier_number": 12,
       "chainage_m_approx": 280,
-      "bank": "por confirmar",
-      "jet_direction": "por confirmar"
+      "bank": "Interior",
+      "bank_evidence": "orilla del inicio de la linea azul numerada",
+      "jet_angle_deg": "por medir"
     },
     {
       "supplier_number": 13,
       "chainage_m_approx": 305,
-      "bank": "por confirmar",
-      "jet_direction": "por confirmar"
+      "bank": "Exterior",
+      "bank_evidence": "orilla del inicio de la linea azul numerada",
+      "jet_angle_deg": "por medir"
     },
     {
       "supplier_number": 14,
       "chainage_m_approx": 330,
-      "bank": "por confirmar",
-      "jet_direction": "por confirmar"
+      "bank": "Interior",
+      "bank_evidence": "orilla del inicio de la linea azul numerada",
+      "jet_angle_deg": "por medir"
     },
     {
       "supplier_number": 15,
       "chainage_m_approx": 350,
-      "bank": "por confirmar",
-      "jet_direction": "por confirmar"
+      "bank": "Exterior",
+      "bank_evidence": "orilla del inicio de la linea azul numerada",
+      "jet_angle_deg": "por medir"
     },
     {
       "supplier_number": 16,
       "chainage_m_approx": 370,
-      "bank": "por confirmar",
-      "jet_direction": "por confirmar"
+      "bank": "Interior",
+      "bank_evidence": "orilla del inicio de la linea azul numerada",
+      "jet_angle_deg": "por medir"
     },
     {
       "supplier_number": 17,
       "chainage_m_approx": 395,
-      "bank": "por confirmar",
-      "jet_direction": "por confirmar"
+      "bank": "Exterior",
+      "bank_evidence": "orilla del inicio de la linea azul numerada",
+      "jet_angle_deg": "por medir"
     },
     {
       "supplier_number": 18,
       "chainage_m_approx": 425,
-      "bank": "por confirmar",
-      "jet_direction": "por confirmar"
+      "bank": "Interior",
+      "bank_evidence": "orilla del inicio de la linea azul numerada",
+      "jet_angle_deg": "por medir"
     },
     {
       "supplier_number": 19,
       "chainage_m_approx": 465,
-      "bank": "por confirmar",
-      "jet_direction": "por confirmar"
+      "bank": "Interior",
+      "bank_evidence": "orilla del inicio de la linea azul numerada",
+      "jet_angle_deg": "por medir"
     },
     {
       "supplier_number": 20,
       "chainage_m_approx": 505,
-      "bank": "por confirmar",
-      "jet_direction": "por confirmar"
+      "bank": "Interior",
+      "bank_evidence": "orilla del inicio de la linea azul numerada",
+      "jet_angle_deg": "por medir"
     }
   ]
 }

@@ -62,7 +62,9 @@ function draw(){if(!width)return;ctx.clearRect(0,0,width,height);ctx.fillStyle='
     ctx.beginPath();ctx.arc(q[0],q[1],Math.max(1.7,2.5*zoom**0.3),0,Math.PI*2);
     ctx.fillStyle=i%7===0?'#087ba4':'#3da8c9';ctx.fill()}
   ctx.restore();
-  for(const item of data.pumps){const p=sample(item[1]),q=screen(p);
+  for(const item of data.pumps){const p=sample(item[1]);
+    const bankOffset=(item[2]==='Exterior'?-0.35:0.35)*p[2];
+    const q=screen([p[0]+p[3]*bankOffset,p[1]+p[4]*bankOffset]);
     ctx.beginPath();ctx.arc(q[0],q[1],5.5,0,Math.PI*2);ctx.fillStyle='#ea580c';ctx.fill();
     ctx.strokeStyle='white';ctx.lineWidth=1.5;ctx.stroke();
     ctx.font='bold 12px system-ui';ctx.lineWidth=3;ctx.strokeStyle='white';ctx.strokeText(String(item[0]),q[0]+7,q[1]-7);
@@ -114,7 +116,7 @@ def main() -> None:
     payload = {"length": 536, "outer": outer, "inner": inner, "center": center,
                "bounds": [float(vertices[:, 0].min()), float(vertices[:, 1].min()),
                           float(vertices[:, 0].max()), float(vertices[:, 1].max())],
-               "pumps": [[item["supplier_number"], item["chainage_m_approx"]]
+               "pumps": [[item["supplier_number"], item["chainage_m_approx"], item["bank"]]
                          for item in layout["positions"]]}
     html = HTML.replace("__PAYLOAD__", json.dumps(payload, separators=(",", ":")))
     output = ASSETS / "route_animation.html"
