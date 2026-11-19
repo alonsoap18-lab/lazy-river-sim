@@ -62,6 +62,17 @@ def test_supplier_photo_cfd_uses_same_dxf_and_published_bank_mapping():
     assert report["not_rider_time"] is True
 
 
+def test_supplier_photo_cfd_layout_hash_ignores_platform_line_endings():
+    raw = (ASSETS / "layout.json").read_text(encoding="utf-8")
+    normalized = raw.replace("\r\n", "\n")
+    def fingerprint(value):
+        return sha256(json.dumps(json.loads(value), ensure_ascii=False,
+                                 sort_keys=True, separators=(",", ":")
+                      ).encode("utf-8")).hexdigest()
+    assert fingerprint(normalized) == fingerprint(normalized.replace("\n", "\r\n"))
+    assert fingerprint(raw) == load_pdf_bank_cfd()["layout_canonical_sha256"]
+
+
 def test_preset_opens_with_matching_inputs_and_editable_case_is_retained():
     app = AppTest.from_file("app.py", default_timeout=90).run()
     assert not app.exception

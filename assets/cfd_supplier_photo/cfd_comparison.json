@@ -1,6 +1,6 @@
 {
   "source": "Riverflow optional counterclockwise returns PDF and lazy river 28-10-26.dxf",
-  "layout_sha256": "706d879290d1c07f5bc9a210369ef97ad1a1ca08ba7705855f070af10b589608",
+  "layout_canonical_sha256": "65e6baea05e71c5d60da4da18d76ff1e68d1e3b7216bae2463aa129d55d1cb4b",
   "method": "same DXF, mesh, 20 CF104, assumed 70% VFD and 319.9 m3/h each",
   "pdf_interpretation": "numbered blue line begins at pump side; station along DXF approximate +/-20m",
   "jet_assumption": "two sensitivity cases: tangential and 20-degree inward; blue-line angle and seven individual port vectors not resolved",

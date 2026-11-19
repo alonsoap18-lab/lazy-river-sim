@@ -49,7 +49,9 @@ def main() -> None:
         metrics.PAIRS.update(original_pairs)
     report = {
         "source": "Riverflow optional counterclockwise returns PDF and lazy river 28-10-26.dxf",
-        "layout_sha256": hashlib.sha256(layout_path.read_bytes()).hexdigest(),
+        "layout_canonical_sha256": hashlib.sha256(json.dumps(
+            layout, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+        ).encode("utf-8")).hexdigest(),
         "method": "same DXF, mesh, 20 CF104, assumed 70% VFD and 319.9 m3/h each",
         "pdf_interpretation": "numbered blue line begins at pump side; station along DXF approximate +/-20m",
         "jet_assumption": "two sensitivity cases: tangential and 20-degree inward; blue-line angle and seven individual port vectors not resolved",

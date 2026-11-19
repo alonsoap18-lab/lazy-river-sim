@@ -23,8 +23,12 @@ ANGLE20 = "qa_supplier20_pdf_banks_angle20_ampliado_vfd70_dt05"
 def load_pdf_bank_cfd() -> dict:
     report = json.loads((ASSETS / "cfd_comparison.json").read_text(encoding="utf-8"))
     result = report["result"]
+    layout = json.loads((ASSETS / "layout.json").read_text(encoding="utf-8"))
+    layout_hash = hashlib.sha256(json.dumps(
+        layout, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")).hexdigest()
     if (result["dxf_sha256"] != WIDE_SHA or result["mesh_cells"] != 5352 or
-            report["layout_sha256"] != hashlib.sha256((ASSETS / "layout.json").read_bytes()).hexdigest() or
+            report["layout_canonical_sha256"] != layout_hash or
             set(result["cases"]) != {CURRENT, TANGENT, ANGLE20}):
         raise ValueError("La comparación CFD no corresponde al DXF ampliado y sus tres casos.")
     for name in ("flow_tangent_2d.html.gz", "flow_tangent_3d.html.gz",
