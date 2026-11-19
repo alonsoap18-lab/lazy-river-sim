@@ -10,6 +10,7 @@ import streamlit as st
 import streamlit.components.v1 as components
 
 from core.riverflow_supplier20_archive import WIDE_SHA, archived_wide_layout
+from core.riverflow_supplier_photo_cfd import render_pdf_bank_cfd
 
 
 ASSETS = Path(__file__).resolve().parents[1] / "assets" / "cfd_supplier_photo"
@@ -36,10 +37,10 @@ def render_supplier_photo_sheet(*, source_bytes: bytes, depth_m: float,
                                 banks: tuple[str, ...]) -> None:
     layout = load_supplier_photo()
     st.subheader("Propuesta Riverflow · plano y ubicación aproximada")
-    st.warning("Corregimos la orientación del plano: la bomba 1 está junto a la playa "
-               "en el lado derecho y la 20 en el lado izquierdo. La comparación CFD "
-               "publicada antes usó las progresivas invertidas y **no representa** "
-               "esta propuesta. Sus resultados fueron retirados de esta hoja.")
+    st.info("Las líneas azules numeradas se leen desde la orilla donde nace cada línea: "
+            "allí está la bomba propuesta. La bomba 1 queda junto a la playa en el "
+            "lado derecho y la 20 en el lado izquierdo. Retiramos el ensayo anterior "
+            "porque invirtió las progresivas del plano.")
 
     if hashlib.sha256(source_bytes).hexdigest() != WIDE_SHA:
         st.info("La hoja corresponde al DXF `lazy river 28-10-26.dxf`. El DXF activo "
@@ -53,14 +54,17 @@ def render_supplier_photo_sheet(*, source_bytes: bytes, depth_m: float,
         st.caption("Los controles actuales difieren de la referencia local guardada. "
                    "Este plano sigue siendo una comparación fija y no cambia el escenario activo.")
 
-    animated, source, transfer = st.tabs([
-        "Recorrido animado", "Plano recibido de Riverflow", "Traslado al DXF · comparación"])
+    cfd, animated, source, transfer = st.tabs([
+        "Flujo OpenFOAM · comparar", "Recorrido animado",
+        "Plano recibido de Riverflow", "Traslado al DXF · comparación"])
+    with cfd:
+        render_pdf_bank_cfd()
     with animated:
         html = (ASSETS / "route_animation.html").read_text(encoding="utf-8")
         components.html(html, height=760, scrolling=False)
         st.caption("Los trazadores se mueven para mostrar el sentido y la continuidad "
                    "geométrica. Su rapidez en pantalla es ilustrativa y no procede de "
-                   "OpenFOAM; el nuevo CFD de estas posiciones aún no está calculado.")
+                   "OpenFOAM. Para observar velocidades calculadas, abra Flujo OpenFOAM.")
     with source:
         st.image(str(ASSETS / "source_plan.jpg"),
                  caption="Plano entregado por Riverflow: marcas azules numeradas del 1 al 20. "
@@ -81,7 +85,7 @@ def render_supplier_photo_sheet(*, source_bytes: bytes, depth_m: float,
         st.caption("Traslado visual con incertidumbre aproximada de ±20 m. El plano no "
                    "proporciona coordenadas CAD ni define toma, ángulo preciso de descarga, "
                    "dirección de los siete puertos o VFD individual. La orilla se interpreta "
-                   "por el inicio de cada línea azul junto al número. Por eso todavía "
-                   "no hay un campo CFD válido ni una vuelta calculada para estas "
-                   "posiciones corregidas. La hoja «Plano y recorrido 2D/3D» conserva "
+                   "por el inicio de cada línea azul junto al número. Los ensayos CFD "
+                   "de esta hoja incluyen la incertidumbre de la orientación del chorro "
+                   "mediante dos hipótesis. «Plano y recorrido 2D/3D» conserva "
                    "la distribución local activa.")

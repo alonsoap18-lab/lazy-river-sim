@@ -10,6 +10,9 @@ from core.riverflow_supplier20_archive import (
     wide_dxf_bytes,
 )
 from core.riverflow_supplier_photo import ASSETS, load_supplier_photo
+from core.riverflow_supplier_photo_cfd import (
+    ANGLE20, CURRENT, TANGENT, load_pdf_bank_cfd,
+)
 
 
 def test_archived_source_and_paired_layout():
@@ -46,6 +49,17 @@ def test_supplier_photo_sheet_has_correct_travel_direction_and_source_plan():
     assert route["pumps"][-1] == [20, 505, "Interior"]
     assert route["center"][0][0] == 0
     assert abs(route["center"][-1][0] - route["length"]) < 1
+
+
+def test_supplier_photo_cfd_uses_same_dxf_and_published_bank_mapping():
+    report = load_pdf_bank_cfd()
+    result = report["result"]
+    assert result["dxf_sha256"] == load_supplier_photo()["wide_sha"]
+    assert set(result["cases"]) == {CURRENT, TANGENT, ANGLE20}
+    assert result["mesh_cells"] == 5352
+    for name in (CURRENT, TANGENT, ANGLE20):
+        assert result["cases"][name]["projected_stationary_hydraulic_lap_min"] > 0
+    assert report["not_rider_time"] is True
 
 
 def test_preset_opens_with_matching_inputs_and_editable_case_is_retained():
